@@ -3,6 +3,10 @@
 
 console.log('[MinMax Background] 后台脚本已启动');
 
+const ALARM_NAME = 'checkUsage';
+let lastErrorTime = 0;
+const ERROR_COOLDOWN = 60 * 60 * 1000; // 1小时冷却时间
+
 // 主入口函数
 function main(): void {
   // 监听安装事件
@@ -16,7 +20,26 @@ function main(): void {
         chrome.storage.local.set({ checkInterval: 30, warningThreshold: 90 });
         console.log('[MinMax Background] 已初始化默认配置');
       }
+      // 设置定时任务
+      setupAlarm(result.checkInterval || 30);
     });
+  });
+
+  // 监听配置变更
+  chrome.storage.onChanged.addListener((changes, areaName) => {
+    if (areaName === 'local' && changes.checkInterval) {
+      const newInterval = changes.checkInterval.newValue;
+      console.log('[MinMax Background] 检查间隔已更新为:', newInterval);
+      setupAlarm(newInterval);
+    }
+  });
+
+  // 监听定时任务
+  chrome.alarms.onAlarm.addListener((alarm) => {
+    if (alarm.name === ALARM_NAME) {
+      console.log('[MinMax Background] 定时检查触发');
+      checkMinMaxUsage();
+    }
   });
 
   // 监听来自 popup 或 content script 的消息
@@ -90,7 +113,58 @@ async function checkMinMaxUsage(): Promise<{ success: boolean; usage: number | n
     };
   } catch (err) {
     console.error('[MinMax Background] 检查使用量失败:', err);
+    // 发送错误通知
+    await sendErrorNotification(err instanceof Error ? err.message : String(err));
     return { success: false, usage: null, warning: false };
+  }
+}
+
+/**
+ * 设置定时任务
+ * @param intervalMinutes 检查间隔（分钟）
+ */
+function setupAlarm(intervalMinutes: number) {
+  // 防御性检查：确保间隔大于 0
+  if (!intervalMinutes || intervalMinutes <= 0) {
+    console.warn('[MinMax Background] 检查间隔无效，重置为 1 分钟:', intervalMinutes);
+    intervalMinutes = 1;
+  }
+
+  chrome.alarms.create(ALARM_NAME, {
+    periodInMinutes: intervalMinutes
+  });
+  console.log(`[MinMax Background] 定时任务已设置，间隔: ${intervalMinutes}分钟`);
+}
+
+/**
+ * 发送错误通知
+ * @param error 错误信息
+ */
+async function sendErrorNotification(error: string): Promise<void> {
+  const now = Date.now();
+  // 检查冷却时间
+  if (now - lastErrorTime < ERROR_COOLDOWN) {
+    console.log('[MinMax Background] 错误通知处于冷却期，跳过发送');
+    return;
+  }
+
+  console.log('[MinMax Background] 发送错误通知:', error);
+  
+  // 使用相同的 Base64 图标
+  const iconUrl = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAMklEQVR42u3OsQ0AAAjDPPv/NHfYWZK2p5Kq+Op69/v9fr/f7/f7/X6/3+/3+/1+v99/F/ADZ92w5R0AAAAASUVORK5CYII=';
+
+  try {
+    await chrome.notifications.create({
+      type: 'basic',
+      iconUrl: iconUrl,
+      title: 'MinMax 监控异常',
+      message: `检查使用量时发生错误: ${error}`,
+      priority: 2,
+    });
+    lastErrorTime = now;
+    console.log('[MinMax Background] 错误通知已发送');
+  } catch (err) {
+    console.error('[MinMax Background] 发送错误通知失败:', err);
   }
 }
 

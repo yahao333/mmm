@@ -19,6 +19,7 @@ export default defineConfig({
       'storage',
       'notifications',
       'scripting',
+      'alarms',
     ],
   },
 });

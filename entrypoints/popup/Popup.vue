@@ -83,6 +83,7 @@ const messages = {
     refresh: '刷新数据',
     settingsTitle: '设置',
     goToPage: '前往 MinMax 页面',
+    invalidInterval: '后台检查间隔必须大于 0 分钟',
     // 错误信息映射
     '请在 MinMax 页面打开扩展': '请在 MinMax 页面打开扩展',
     '未能在页面中找到使用量数据，请确认是否在正确的页面上': '未能在页面中找到使用量数据，请确认是否在正确的页面上',
@@ -105,6 +106,7 @@ const messages = {
     refresh: 'Refresh Data',
     settingsTitle: 'Settings',
     goToPage: 'Go to MinMax Page',
+    invalidInterval: 'Check interval must be greater than 0 minutes',
     // Error mapping
     '请在 MinMax 页面打开扩展': 'Please open extension on MinMax page',
     '未能在页面中找到使用量数据，请确认是否在正确的页面上': 'Usage data not found on page',
@@ -182,6 +184,12 @@ function toggleSettings() {
  * 保存设置
  */
 async function saveSettings() {
+  // 校验检查间隔
+  if (checkInterval.value <= 0) {
+    alert(t('invalidInterval'));
+    return;
+  }
+
   await chrome.storage.local.set({
     warningThreshold: threshold.value,
     checkInterval: checkInterval.value
