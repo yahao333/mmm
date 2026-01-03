@@ -101,10 +101,14 @@ async function checkMinMaxUsage(): Promise<{ success: boolean; usage: number | n
 async function sendWarningNotification(usage: number): Promise<void> {
   console.log('[MinMax Background] 发送预警通知，使用量:', usage + '%');
 
+  // 使用 base64 图片作为图标，避免缺少图标文件导致报错
+  // 这是一个 32x32 的蓝色方块
+  const iconUrl = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAMklEQVR42u3OsQ0AAAjDPPv/NHfYWZK2p5Kq+Op69/v9fr/f7/f7/X6/3+/3+/1+v99/F/ADZ92w5R0AAAAASUVORK5CYII=';
+
   try {
     await chrome.notifications.create({
       type: 'basic',
-      iconUrl: 'icon-128.png',  // 需要在项目中添加图标
+      iconUrl: iconUrl,
       title: 'MinMax 使用量预警',
       message: `当前使用量已达到 ${usage.toFixed(1)}%，请注意配额使用情况！`,
       priority: 2,

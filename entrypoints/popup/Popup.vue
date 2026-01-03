@@ -1,37 +1,51 @@
 <template>
   <div class="popup-container">
     <div class="header">
-      <h1>MinMax 使用量监控</h1>
-      <button class="settings-toggle" @click="toggleSettings" title="设置">⚙️</button>
+      <h1>{{ t('title') }}</h1>
+      <div class="header-actions">
+        <button class="lang-toggle" @click="toggleLanguage" title="Change Language">
+          {{ currentLang === 'en' ? '中' : 'EN' }}
+        </button>
+        <button class="settings-toggle" @click="toggleSettings" :title="t('settings')">⚙️</button>
+      </div>
     </div>
 
     <!-- 设置面板 -->
     <div v-if="showSettings" class="settings-panel">
-      <h3>设置</h3>
+      <h3>{{ t('settingsTitle') }}</h3>
       <div class="form-group">
-        <label>预警阈值 (%)</label>
+        <label>{{ t('warningThreshold') }}</label>
         <input type="number" v-model.number="threshold" min="0" max="100" class="form-input" />
       </div>
       <div class="form-group">
-        <label>后台检查间隔 (分钟)</label>
+        <label>{{ t('checkInterval') }}</label>
         <input type="number" v-model.number="checkInterval" min="1" class="form-input" />
       </div>
       <div class="settings-actions">
-        <button @click="saveSettings" class="save-btn">保存</button>
-        <button @click="cancelSettings" class="cancel-btn">取消</button>
+        <button @click="saveSettings" class="save-btn">{{ t('save') }}</button>
+        <button @click="cancelSettings" class="cancel-btn">{{ t('cancel') }}</button>
       </div>
     </div>
 
     <div v-else>
       <div v-if="loading" class="loading">
-        正在获取使用量数据...
+        {{ t('loading') }}
       </div>
-      <div v-else-if="error" class="error">
-        {{ error }}
+      <div v-else-if="error" class="error-container">
+        <div class="error">
+          {{ getErrorMessage(error) }}
+        </div>
+        <button 
+          v-if="error === '请在 MinMax 页面打开扩展' || error === 'Please open extension on MinMax page'"
+          @click="openMinMaxPage" 
+          class="link-btn"
+        >
+          {{ t('goToPage') }}
+        </button>
       </div>
       <div v-else class="usage-info">
         <div class="usage-item">
-          <span class="label">当前使用量:</span>
+          <span class="label">{{ t('currentUsage') }}</span>
           <span class="value">{{ usagePercent }}%</span>
         </div>
         <div class="progress-bar">
@@ -42,16 +56,66 @@
           ></div>
         </div>
         <div class="status" :class="{ 'warning': usagePercent >= threshold }">
-          {{ usagePercent >= threshold ? '⚠️ 使用量超过' + threshold + '%，请注意！' : '✓ 使用量正常' }}
+          {{ usagePercent >= threshold ? t('warningMsg').replace('{threshold}', threshold.toString()) : t('normalMsg') }}
         </div>
-        <button @click="refreshData" class="refresh-btn">刷新数据</button>
+        <button @click="refreshData" class="refresh-btn">{{ t('refresh') }}</button>
       </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, computed } from 'vue';
+
+// 定义语言资源
+const messages = {
+  zh: {
+    title: 'MinMax 使用量监控',
+    settings: '设置',
+    warningThreshold: '预警阈值 (%)',
+    checkInterval: '后台检查间隔 (分钟)',
+    save: '保存',
+    cancel: '取消',
+    loading: '正在获取使用量数据...',
+    currentUsage: '当前使用量:',
+    warningMsg: '⚠️ 使用量超过 {threshold}%，请注意！',
+    normalMsg: '✓ 使用量正常',
+    refresh: '刷新数据',
+    settingsTitle: '设置',
+    goToPage: '前往 MinMax 页面',
+    // 错误信息映射
+    '请在 MinMax 页面打开扩展': '请在 MinMax 页面打开扩展',
+    '未能在页面中找到使用量数据，请确认是否在正确的页面上': '未能在页面中找到使用量数据，请确认是否在正确的页面上',
+    '获取数据失败': '获取数据失败',
+    'Please open extension on MinMax page': '请在 MinMax 页面打开扩展',
+    'Usage data not found on page': '未能在页面中找到使用量数据',
+    'Failed to fetch data': '获取数据失败'
+  },
+  en: {
+    title: 'MinMax Usage Monitor',
+    settings: 'Settings',
+    warningThreshold: 'Warning Threshold (%)',
+    checkInterval: 'Check Interval (min)',
+    save: 'Save',
+    cancel: 'Cancel',
+    loading: 'Fetching usage data...',
+    currentUsage: 'Current Usage:',
+    warningMsg: '⚠️ Usage exceeds {threshold}%, please check!',
+    normalMsg: '✓ Usage is normal',
+    refresh: 'Refresh Data',
+    settingsTitle: 'Settings',
+    goToPage: 'Go to MinMax Page',
+    // Error mapping
+    '请在 MinMax 页面打开扩展': 'Please open extension on MinMax page',
+    '未能在页面中找到使用量数据，请确认是否在正确的页面上': 'Usage data not found on page',
+    '获取数据失败': 'Failed to fetch data',
+    'Please open extension on MinMax page': 'Please open extension on MinMax page',
+    'Usage data not found on page': 'Usage data not found on page',
+    'Failed to fetch data': 'Failed to fetch data'
+  }
+};
+
+type Lang = 'zh' | 'en';
 
 // 定义状态变量
 const loading = ref(true);           // 加载状态
@@ -60,14 +124,48 @@ const usagePercent = ref(0);         // 使用量百分比
 const showSettings = ref(false);     // 是否显示设置
 const threshold = ref(90);           // 预警阈值
 const checkInterval = ref(30);       // 检查间隔
+const currentLang = ref<Lang>('en'); // 当前语言，默认英文
+
+/**
+ * 获取翻译文本
+ * @param key 翻译键
+ */
+function t(key: keyof typeof messages['en']) {
+  return messages[currentLang.value][key] || key;
+}
+
+/**
+ * 获取错误信息的翻译
+ * 尝试匹配已知的错误信息并翻译，否则显示原样
+ */
+function getErrorMessage(msg: string) {
+  const map = messages[currentLang.value] as Record<string, string>;
+  return map[msg] || msg;
+}
+
+/**
+ * 切换语言
+ */
+async function toggleLanguage() {
+  currentLang.value = currentLang.value === 'en' ? 'zh' : 'en';
+  await chrome.storage.local.set({ language: currentLang.value });
+}
+
+/**
+ * 打开 MinMax 页面
+ */
+function openMinMaxPage() {
+  chrome.tabs.create({ url: 'https://platform.minimaxi.com/user-center/payment/coding-plan' });
+}
 
 /**
  * 加载设置
  */
 async function loadSettings() {
-  const result = await chrome.storage.local.get(['warningThreshold', 'checkInterval']);
+  const result = await chrome.storage.local.get(['warningThreshold', 'checkInterval', 'language']);
   if (result.warningThreshold !== undefined) threshold.value = result.warningThreshold;
   if (result.checkInterval !== undefined) checkInterval.value = result.checkInterval;
+  if (result.language !== undefined) currentLang.value = result.language as Lang;
 }
 
 /**
@@ -176,9 +274,13 @@ async function sendWarningNotification(percent: number): Promise<void> {
   // 调试日志：记录预警触发
   console.log('[MinMax Popup] 触发预警通知，使用量:', percent + '%');
 
+  // 使用 base64 图片作为图标，避免缺少图标文件导致报错
+  // 这是一个 32x32 的蓝色方块
+  const iconUrl = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAMklEQVR42u3OsQ0AAAjDPPv/NHfYWZK2p5Kq+Op69/v9fr/f7/f7/X6/3+/3+/1+v99/F/ADZ92w5R0AAAAASUVORK5CYII=';
+
   await chrome.notifications.create({
     type: 'basic',
-    iconUrl: 'icon-128.png',  // 需要在项目中添加图标
+    iconUrl: iconUrl,
     title: 'MinMax 使用量预警',
     message: `当前使用量已达到 ${percent.toFixed(1)}%，请注意配额使用情况！`,
     priority: 2,
@@ -236,23 +338,45 @@ onMounted(async () => {
   margin-bottom: 16px;
 }
 
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 h1 {
   font-size: 18px;
   margin: 0;
   color: #333;
 }
 
-.settings-toggle {
+.settings-toggle, .lang-toggle {
   background: none;
   border: none;
-  font-size: 20px;
   cursor: pointer;
   padding: 4px;
-  border-radius: 50%;
+  border-radius: 4px;
   transition: background 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
-.settings-toggle:hover {
+.settings-toggle {
+  font-size: 20px;
+  border-radius: 50%;
+}
+
+.lang-toggle {
+  font-size: 12px;
+  font-weight: bold;
+  color: #666;
+  border: 1px solid #ddd;
+  padding: 2px 6px;
+  min-width: 24px;
+}
+
+.settings-toggle:hover, .lang-toggle:hover {
   background: #f0f0f0;
 }
 
@@ -330,12 +454,33 @@ h1 {
   padding: 20px;
 }
 
+.error-container {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
 .error {
   color: #e53935;
   padding: 12px;
   background: #ffebee;
   border-radius: 4px;
   font-size: 14px;
+}
+
+.link-btn {
+  padding: 8px 16px;
+  background: #2196f3;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  text-align: center;
+}
+
+.link-btn:hover {
+  background: #1976d2;
 }
 
 .usage-info {
