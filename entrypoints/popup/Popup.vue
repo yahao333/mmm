@@ -221,7 +221,11 @@ function cancelSettings() {
  */
 async function testNotification() {
   try {
-    await sendWarningNotification(88.8);
+    // 通过 background 脚本发送测试通知
+    await chrome.runtime.sendMessage({
+      action: 'sendNotification',
+      usage: 88.8
+    });
     alert(t('notificationSent'));
   } catch (err) {
     console.error('Failed to send test notification:', err);
@@ -300,26 +304,17 @@ async function fetchUsageData(): Promise<number> {
 
 /**
  * 发送预警通知
+ * 通过 background 脚本发送通知，避免 popup 直接调用通知 API 的限制
  * @param percent 当前使用量百分比
  */
 async function sendWarningNotification(percent: number): Promise<void> {
   // 调试日志：记录预警触发
   console.log('[MinMax Popup] 触发预警通知，使用量:', percent + '%');
 
-  // 使用 base64 图片作为图标，避免缺少图标文件导致报错
-  // 这是一个 32x32 的蓝色方块
-  const iconUrl = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAMklEQVR42u3OsQ0AAAjDPPv/NHfYWZK2p5Kq+Op69/v9fr/f7/f7/X6/3+/3+/1+v99/F/ADZ92w5R0AAAAASUVORK5CYII=';
-
-  // 使用时间戳作为唯一 ID，确保每次都能弹出新通知，避免被浏览器合并或静默更新
-  const notificationId = `minmax-warning-${Date.now()}`;
-
-  await chrome.notifications.create(notificationId, {
-    type: 'basic',
-    iconUrl: iconUrl,
-    title: 'MinMax 使用量预警',
-    message: `当前使用量已达到 ${percent.toFixed(1)}%，请注意配额使用情况！`,
-    priority: 2,
-    requireInteraction: true, // 要求用户交互，防止自动消失
+  // 发送消息给 background 脚本，由 background 发送通知
+  await chrome.runtime.sendMessage({
+    action: 'sendNotification',
+    usage: percent
   });
 }
 
@@ -340,6 +335,7 @@ async function refreshData(): Promise<void> {
     console.log('[MinMax Popup] 获取到使用量:', percent + '%');
 
     // 如果使用量超过阈值，发送预警通知
+    console.log('[MinMax Popup] 预警检查: percent=', percent, 'threshold.value=', threshold.value, 'percent >= threshold.value:', percent >= threshold.value);
     if (percent >= threshold.value) {
       await sendWarningNotification(percent);
       // 显示通知状态提示

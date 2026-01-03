@@ -55,6 +55,13 @@ function main(): void {
       // 返回 true 表示异步响应
       return true;
     }
+
+    if (message.action === 'sendNotification') {
+      // 发送预警通知
+      console.log('[MinMax Background] 收到发送通知请求，使用量:', message.usage + '%');
+      sendWarningNotification(message.usage);
+      return false;
+    }
   });
 
   console.log('[MinMax Background] 后台脚本加载完成');
@@ -149,14 +156,11 @@ async function sendErrorNotification(error: string): Promise<void> {
   }
 
   console.log('[MinMax Background] 发送错误通知:', error);
-  
-  // 使用相同的 Base64 图标
-  const iconUrl = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAMklEQVR42u3OsQ0AAAjDPPv/NHfYWZK2p5Kq+Op69/v9fr/f7/f7/X6/3+/3+/1+v99/F/ADZ92w5R0AAAAASUVORK5CYII=';
 
   try {
     await chrome.notifications.create({
       type: 'basic',
-      iconUrl: iconUrl,
+      // 不指定 iconUrl，使用 Chrome 默认图标
       title: 'MinMax 监控异常',
       message: `检查使用量时发生错误: ${error}`,
       priority: 2,
@@ -175,17 +179,13 @@ async function sendErrorNotification(error: string): Promise<void> {
 async function sendWarningNotification(usage: number): Promise<void> {
   console.log('[MinMax Background] 发送预警通知，使用量:', usage + '%');
 
-  // 使用 base64 图片作为图标，避免缺少图标文件导致报错
-  // 这是一个 32x32 的蓝色方块
-  const iconUrl = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAMklEQVR42u3OsQ0AAAjDPPv/NHfYWZK2p5Kq+Op69/v9fr/f7/f7/X6/3+/3+/1+v99/F/ADZ92w5R0AAAAASUVORK5CYII=';
-
   // 使用唯一 ID
   const notificationId = `minmax-warning-${Date.now()}`;
 
   try {
     await chrome.notifications.create(notificationId, {
       type: 'basic',
-      iconUrl: iconUrl,
+      // 不指定 iconUrl，使用 Chrome 默认图标
       title: 'MinMax 使用量预警',
       message: `当前使用量已达到 ${usage.toFixed(1)}%，请注意配额使用情况！`,
       priority: 2,
