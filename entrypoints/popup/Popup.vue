@@ -1,28 +1,51 @@
 <template>
   <div class="popup-container">
-    <h1>MinMax 使用量监控</h1>
-    <div v-if="loading" class="loading">
-      正在获取使用量数据...
+    <div class="header">
+      <h1>MinMax 使用量监控</h1>
+      <button class="settings-toggle" @click="toggleSettings" title="设置">⚙️</button>
     </div>
-    <div v-else-if="error" class="error">
-      {{ error }}
+
+    <!-- 设置面板 -->
+    <div v-if="showSettings" class="settings-panel">
+      <h3>设置</h3>
+      <div class="form-group">
+        <label>预警阈值 (%)</label>
+        <input type="number" v-model.number="threshold" min="0" max="100" class="form-input" />
+      </div>
+      <div class="form-group">
+        <label>后台检查间隔 (分钟)</label>
+        <input type="number" v-model.number="checkInterval" min="1" class="form-input" />
+      </div>
+      <div class="settings-actions">
+        <button @click="saveSettings" class="save-btn">保存</button>
+        <button @click="cancelSettings" class="cancel-btn">取消</button>
+      </div>
     </div>
-    <div v-else class="usage-info">
-      <div class="usage-item">
-        <span class="label">当前使用量:</span>
-        <span class="value">{{ usagePercent }}%</span>
+
+    <div v-else>
+      <div v-if="loading" class="loading">
+        正在获取使用量数据...
       </div>
-      <div class="progress-bar">
-        <div
-          class="progress-fill"
-          :class="{ 'warning': usagePercent >= 90 }"
-          :style="{ width: usagePercent + '%' }"
-        ></div>
+      <div v-else-if="error" class="error">
+        {{ error }}
       </div>
-      <div class="status" :class="{ 'warning': usagePercent >= 90 }">
-        {{ usagePercent >= 90 ? '⚠️ 使用量超过90%，请注意！' : '✓ 使用量正常' }}
+      <div v-else class="usage-info">
+        <div class="usage-item">
+          <span class="label">当前使用量:</span>
+          <span class="value">{{ usagePercent }}%</span>
+        </div>
+        <div class="progress-bar">
+          <div
+            class="progress-fill"
+            :class="{ 'warning': usagePercent >= threshold }"
+            :style="{ width: usagePercent + '%' }"
+          ></div>
+        </div>
+        <div class="status" :class="{ 'warning': usagePercent >= threshold }">
+          {{ usagePercent >= threshold ? '⚠️ 使用量超过' + threshold + '%，请注意！' : '✓ 使用量正常' }}
+        </div>
+        <button @click="refreshData" class="refresh-btn">刷新数据</button>
       </div>
-      <button @click="refreshData" class="refresh-btn">刷新数据</button>
     </div>
   </div>
 </template>
@@ -34,6 +57,47 @@ import { ref, onMounted } from 'vue';
 const loading = ref(true);           // 加载状态
 const error = ref('');               // 错误信息
 const usagePercent = ref(0);         // 使用量百分比
+const showSettings = ref(false);     // 是否显示设置
+const threshold = ref(90);           // 预警阈值
+const checkInterval = ref(30);       // 检查间隔
+
+/**
+ * 加载设置
+ */
+async function loadSettings() {
+  const result = await chrome.storage.local.get(['warningThreshold', 'checkInterval']);
+  if (result.warningThreshold !== undefined) threshold.value = result.warningThreshold;
+  if (result.checkInterval !== undefined) checkInterval.value = result.checkInterval;
+}
+
+/**
+ * 切换设置面板显示
+ */
+function toggleSettings() {
+  showSettings.value = !showSettings.value;
+  if (showSettings.value) {
+    loadSettings();
+  }
+}
+
+/**
+ * 保存设置
+ */
+async function saveSettings() {
+  await chrome.storage.local.set({
+    warningThreshold: threshold.value,
+    checkInterval: checkInterval.value
+  });
+  showSettings.value = false;
+}
+
+/**
+ * 取消设置修改
+ */
+function cancelSettings() {
+  showSettings.value = false;
+  loadSettings();
+}
 
 /**
  * 获取当前标签页
@@ -62,7 +126,7 @@ async function fetchUsageData(): Promise<number> {
 
   // 执行脚本获取使用量数据
   const results = await chrome.scripting.executeScript({
-    target: { tabId: tab.id },
+    target: { tabId: tab.id! },
     func: () => {
       // 从页面中查找使用量信息
       // 页面结构：查找包含 "已使用" 或百分比信息的元素
@@ -137,8 +201,8 @@ async function refreshData(): Promise<void> {
     // 调试日志：记录获取到的使用量
     console.log('[MinMax Popup] 获取到使用量:', percent + '%');
 
-    // 如果使用量超过90%，发送预警通知
-    if (percent >= 90) {
+    // 如果使用量超过阈值，发送预警通知
+    if (percent >= threshold.value) {
       await sendWarningNotification(percent);
     }
   } catch (err) {
@@ -150,7 +214,8 @@ async function refreshData(): Promise<void> {
 }
 
 // 组件挂载时自动获取数据
-onMounted(() => {
+onMounted(async () => {
+  await loadSettings();
   console.log('[MinMax Popup] 组件已挂载，开始获取数据');
   refreshData();
 });
@@ -163,13 +228,102 @@ onMounted(() => {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
+/* Header Styles */
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
 h1 {
   font-size: 18px;
-  margin-bottom: 16px;
-  text-align: center;
+  margin: 0;
   color: #333;
 }
 
+.settings-toggle {
+  background: none;
+  border: none;
+  font-size: 20px;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 50%;
+  transition: background 0.2s;
+}
+
+.settings-toggle:hover {
+  background: #f0f0f0;
+}
+
+/* Settings Panel Styles */
+.settings-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.settings-panel h3 {
+  font-size: 16px;
+  margin: 0 0 8px 0;
+  color: #333;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.form-group label {
+  font-size: 14px;
+  color: #666;
+}
+
+.form-input {
+  padding: 8px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 14px;
+}
+
+.settings-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.save-btn {
+  flex: 1;
+  padding: 8px;
+  background: #4caf50;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.save-btn:hover {
+  background: #43a047;
+}
+
+.cancel-btn {
+  flex: 1;
+  padding: 8px;
+  background: #f5f5f5;
+  color: #666;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.cancel-btn:hover {
+  background: #eeeeee;
+}
+
+/* Existing Styles */
 .loading {
   text-align: center;
   color: #666;
