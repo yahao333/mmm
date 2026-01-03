@@ -21,6 +21,9 @@
         <label>{{ t('checkInterval') }}</label>
         <input type="number" v-model.number="checkInterval" min="1" class="form-input" />
       </div>
+      <div class="form-group">
+        <button @click="testNotification" class="test-btn">{{ t('testNotification') }}</button>
+      </div>
       <div class="settings-actions">
         <button @click="saveSettings" class="save-btn">{{ t('save') }}</button>
         <button @click="cancelSettings" class="cancel-btn">{{ t('cancel') }}</button>
@@ -31,7 +34,10 @@
       <div v-if="loading" class="loading">
         {{ t('loading') }}
       </div>
-      <div v-else-if="error" class="error-container">
+      <div v-if="notificationStatus" class="notification-status">
+        {{ notificationStatus }}
+      </div>
+      <div v-if="!loading && error" class="error-container">
         <div class="error">
           {{ getErrorMessage(error) }}
         </div>
@@ -84,6 +90,8 @@ const messages = {
     settingsTitle: '设置',
     goToPage: '前往 MinMax 页面',
     invalidInterval: '后台检查间隔必须大于 0 分钟',
+    testNotification: '测试系统通知',
+    notificationSent: '通知已发送',
     // 错误信息映射
     '请在 MinMax 页面打开扩展': '请在 MinMax 页面打开扩展',
     '未能在页面中找到使用量数据，请确认是否在正确的页面上': '未能在页面中找到使用量数据，请确认是否在正确的页面上',
@@ -107,6 +115,8 @@ const messages = {
     settingsTitle: 'Settings',
     goToPage: 'Go to MinMax Page',
     invalidInterval: 'Check interval must be greater than 0 minutes',
+    testNotification: 'Test Notification',
+    notificationSent: 'Notification Sent',
     // Error mapping
     '请在 MinMax 页面打开扩展': 'Please open extension on MinMax page',
     '未能在页面中找到使用量数据，请确认是否在正确的页面上': 'Usage data not found on page',
@@ -127,6 +137,7 @@ const showSettings = ref(false);     // 是否显示设置
 const threshold = ref(90);           // 预警阈值
 const checkInterval = ref(30);       // 检查间隔
 const currentLang = ref<Lang>('en'); // 当前语言，默认英文
+const notificationStatus = ref('');  // 通知状态提示
 
 /**
  * 获取翻译文本
@@ -203,6 +214,19 @@ async function saveSettings() {
 function cancelSettings() {
   showSettings.value = false;
   loadSettings();
+}
+
+/**
+ * 测试系统通知
+ */
+async function testNotification() {
+  try {
+    await sendWarningNotification(88.8);
+    alert(t('notificationSent'));
+  } catch (err) {
+    console.error('Failed to send test notification:', err);
+    alert('Failed: ' + String(err));
+  }
 }
 
 /**
@@ -286,12 +310,16 @@ async function sendWarningNotification(percent: number): Promise<void> {
   // 这是一个 32x32 的蓝色方块
   const iconUrl = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAMklEQVR42u3OsQ0AAAjDPPv/NHfYWZK2p5Kq+Op69/v9fr/f7/f7/X6/3+/3+/1+v99/F/ADZ92w5R0AAAAASUVORK5CYII=';
 
-  await chrome.notifications.create({
+  // 使用时间戳作为唯一 ID，确保每次都能弹出新通知，避免被浏览器合并或静默更新
+  const notificationId = `minmax-warning-${Date.now()}`;
+
+  await chrome.notifications.create(notificationId, {
     type: 'basic',
     iconUrl: iconUrl,
     title: 'MinMax 使用量预警',
     message: `当前使用量已达到 ${percent.toFixed(1)}%，请注意配额使用情况！`,
     priority: 2,
+    requireInteraction: true, // 要求用户交互，防止自动消失
   });
 }
 
@@ -314,6 +342,11 @@ async function refreshData(): Promise<void> {
     // 如果使用量超过阈值，发送预警通知
     if (percent >= threshold.value) {
       await sendWarningNotification(percent);
+      // 显示通知状态提示
+      notificationStatus.value = t('notificationSent');
+      setTimeout(() => {
+        notificationStatus.value = '';
+      }, 3000);
     }
   } catch (err) {
     error.value = err instanceof Error ? err.message : '获取数据失败';
@@ -460,6 +493,31 @@ h1 {
   text-align: center;
   color: #666;
   padding: 20px;
+}
+
+.notification-status {
+  text-align: center;
+  color: #4caf50;
+  padding: 8px;
+  background: #e8f5e9;
+  border-radius: 4px;
+  margin-bottom: 12px;
+  font-size: 14px;
+}
+
+.test-btn {
+  width: 100%;
+  padding: 8px;
+  background: #ff9800;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.test-btn:hover {
+  background: #f57c00;
 }
 
 .error-container {

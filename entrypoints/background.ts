@@ -179,13 +179,17 @@ async function sendWarningNotification(usage: number): Promise<void> {
   // 这是一个 32x32 的蓝色方块
   const iconUrl = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAMklEQVR42u3OsQ0AAAjDPPv/NHfYWZK2p5Kq+Op69/v9fr/f7/f7/X6/3+/3+/1+v99/F/ADZ92w5R0AAAAASUVORK5CYII=';
 
+  // 使用唯一 ID
+  const notificationId = `minmax-warning-${Date.now()}`;
+
   try {
-    await chrome.notifications.create({
+    await chrome.notifications.create(notificationId, {
       type: 'basic',
       iconUrl: iconUrl,
       title: 'MinMax 使用量预警',
       message: `当前使用量已达到 ${usage.toFixed(1)}%，请注意配额使用情况！`,
       priority: 2,
+      requireInteraction: true, // 要求用户交互，防止自动消失
     });
     console.log('[MinMax Background] 预警通知已发送');
   } catch (err) {
