@@ -1,0 +1,29 @@
+# 依赖目录
+node_modules/
+
+# pnpm
+.pnpm-store/
+
+# 构建输出
+.output/
+dist/
+*.zip
+
+# Wxt 生成的文件
+.wxt/
+*.env
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# 日志
+*.log
+npm-debug.log*
+pnpm-debug.log*
