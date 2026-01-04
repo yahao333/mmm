@@ -131,20 +131,11 @@ export function useMinMaxWebview(): UseMinMaxWebviewReturn {
     // 监听 trigger-fetch-usage 事件（定时任务触发获取）
     console.log('[useMinMaxWebview] 注册 trigger-fetch-usage 事件监听');
     await listen('trigger-fetch-usage', async () => {
-      console.log('[useMinMaxWebview] 收到定时任务触发信号，尝试获取使用量...');
-      try {
-        // 使用 ref 获取最新的 openMinMaxWindow
-        const openFn = openMinMaxWindowRef.current;
-        if (openFn) {
-          await openFn();
-          setWebviewHint('定时任务：正在获取使用量，请稍候...');
-          console.log('[useMinMaxWebview] 定时任务触发成功');
-        } else {
-          console.warn('[useMinMaxWebview] openMinMaxWindowRef 还未初始化');
-        }
-      } catch (err) {
-        console.error('[useMinMaxWebview] 定时任务触发失败:', err);
-      }
+      console.log('[useMinMaxWebview] 收到定时任务触发信号，窗口已在后台运行...');
+      // 定时任务模式下，窗口已在后台创建，不需要再打开窗口
+      // 只需要更新提示信息，让用户知道正在获取数据
+      setWebviewHint('定时任务：正在后台获取使用量...');
+      console.log('[useMinMaxWebview] 定时任务触发成功');
     });
   }, []);
 

@@ -478,10 +478,11 @@ async fn open_url(url: String) -> Result<(), String> {
 
 #[tauri::command]
 async fn open_minmax_window(app: tauri::AppHandle) -> Result<(), String> {
-  info!("打开 MinMax 窗口");
+  info!("打开 MinMax 窗口（用户手动操作，显示窗口）");
 
   if let Some(existing) = app.get_webview_window(MINMAX_WINDOW_LABEL) {
-    info!("MinMax 窗口已存在，尝试显示并聚焦");
+    info!("MinMax 窗口已存在，显示并聚焦");
+    // 显示窗口并添加到任务栏
     if let Err(e) = existing.show() {
       warn!("显示 MinMax 窗口失败: {}", e);
     }
@@ -503,6 +504,9 @@ async fn open_minmax_window(app: tauri::AppHandle) -> Result<(), String> {
     .resizable(true)
     .center()
     .initialization_script(MINMAX_INIT_SCRIPT)
+    // 用户手动打开窗口，需要显示并显示在任务栏
+    .visible(true)
+    .skip_taskbar(false)
     .build()
     .map_err(|e| format!("创建 MinMax 窗口失败: {}", e))?;
 
@@ -594,29 +598,24 @@ async fn get_usage() -> Result<f64, String> {
 
 /// 内部函数：触发前端获取使用量（供定时任务直接调用）
 /// 这个函数是普通异步函数，不是 tauri command
+/// 静默模式：只在后台静默获取数据，不显示窗口
 async fn do_trigger_fetch_usage(app: &tauri::AppHandle) {
-  info!("[do_trigger_fetch_usage] 开始执行");
+  info!("[do_trigger_fetch_usage] 开始执行（静默模式）");
 
-  // 检查 MinMax 窗口是否存在
+  // 使用 app.emit 广播事件到所有窗口（包括主窗口和 MinMax 窗口）
+  // 这样主窗口中的前端监听器就能收到事件
+  let emit_result = app.emit("trigger-fetch-usage", {});
+  info!("[do_trigger_fetch_usage] 广播事件到所有窗口: {:?}", emit_result);
+
+  // 检查 MinMax 窗口是否存在（窗口在应用启动时已创建）
   let window = app.get_webview_window(MINMAX_WINDOW_LABEL);
 
-  if let Some(win) = window {
-    info!("[do_trigger_fetch_usage] MinMax 窗口已存在");
-
-    // 在后台执行窗口操作
-    let win_clone = win.clone();
-    tokio::spawn(async move {
-      let _ = win_clone.show();
-      let _ = win_clone.set_focus();
-    });
-
-    // 发送事件
-    let emit_result = win.emit("trigger-fetch-usage", {});
-    info!("[do_trigger_fetch_usage] 事件发送结果: {:?}", emit_result);
+  if let Some(_win) = window {
+    info!("[do_trigger_fetch_usage] MinMax 窗口已在后台运行，静默获取数据");
+    // 静默模式：不调用 show() 和 set_focus()，不干扰用户
   } else {
-    info!("[do_trigger_fetch_usage] MinMax 窗口不存在，创建新窗口");
-
-    // 在后台创建窗口
+    // 如果窗口不存在（异常情况），静默创建
+    warn!("[do_trigger_fetch_usage] MinMax 窗口不存在，静默创建");
     let app_clone = app.clone();
     tokio::spawn(async move {
       let url = MINMAX_USAGE_URL
@@ -629,9 +628,11 @@ async fn do_trigger_fetch_usage(app: &tauri::AppHandle) {
         .resizable(true)
         .center()
         .initialization_script(MINMAX_INIT_SCRIPT)
+        .visible(false)
+        .skip_taskbar(true)
         .build()
       {
-        Ok(_) => info!("[do_trigger_fetch_usage] MinMax 窗口创建成功"),
+        Ok(_) => info!("[do_trigger_fetch_usage] MinMax 窗口已静默创建"),
         Err(e) => error!("[do_trigger_fetch_usage] MinMax 窗口创建失败: {}", e),
       }
     });
@@ -709,6 +710,33 @@ pub fn run() {
     ])
     .manage(app_state.clone())
     .setup(move |app| {
+      // 静默创建 MinMax 窗口（后台加载，不显示，不显示在任务栏）
+      let app_handle = app.handle().clone();
+      tauri::async_runtime::spawn(async move {
+        // 检查窗口是否已存在
+        if app_handle.get_webview_window(MINMAX_WINDOW_LABEL).is_none() {
+          let url = MINMAX_USAGE_URL
+            .parse()
+            .expect("MinMax URL 解析失败");
+
+          match tauri::WebviewWindowBuilder::new(&app_handle, MINMAX_WINDOW_LABEL, tauri::WebviewUrl::External(url))
+            .title("MinMax")
+            .inner_size(1100.0, 800.0)
+            .resizable(true)
+            .center()
+            .initialization_script(MINMAX_INIT_SCRIPT)
+            .visible(false) // 静默模式，不显示窗口
+            .skip_taskbar(true) // 不显示在任务栏，完全后台运行
+            .build()
+          {
+            Ok(_) => info!("[setup] MinMax 窗口已静默创建（后台加载，不显示在任务栏）"),
+            Err(e) => error!("[setup] MinMax 窗口静默创建失败: {}", e),
+          }
+        } else {
+          info!("[setup] MinMax 窗口已存在，跳过创建");
+        }
+      });
+
       // 使用 Tauri 提供的 Tokio runtime 启动异步任务
       let app_handle = app.handle().clone();
       let app_state_clone = app_state.clone();
