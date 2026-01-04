@@ -20,7 +20,23 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": "default-src * 'unsafe-inline' 'unsafe-eval' data: blob: filesystem:; connect-src https://platform.minimaxi.com; img-src * data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval'; frame-src https://platform.minimaxi.com; frame-ancestors *;",
+      "capabilities": [
+        {
+          "identifier": "default",
+          "windows": [
+            "main"
+          ],
+          "permissions": [
+            "core:default",
+            "core:webview:default",
+            "core:window:default",
+            "core:window:allow-get-all-windows",
+            "core:webview:allow-create-webview-window",
+            "core:webview:allow-create-webview"
+          ]
+        }
+      ]
     }
   },
   "bundle": {

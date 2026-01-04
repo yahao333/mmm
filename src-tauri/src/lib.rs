@@ -223,7 +223,107 @@ async fn send_error_notification(
 #[tauri::command]
 async fn open_url(url: String) -> Result<(), String> {
   info!("打开 URL: {}", url);
-  Ok(())
+
+  // 根据不同平台使用系统命令打开浏览器
+  let result = if cfg!(target_os = "windows") {
+    // Windows: 使用 start 命令
+    tokio::process::Command::new("cmd")
+      .args(&["/c", "start", &url])
+      .spawn()
+  } else if cfg!(target_os = "macos") {
+    // macOS: 使用 open 命令
+    tokio::process::Command::new("open")
+      .arg(&url)
+      .spawn()
+  } else {
+    // Linux: 使用 xdg-open 命令
+    tokio::process::Command::new("xdg-open")
+      .arg(&url)
+      .spawn()
+  };
+
+  match result {
+    Ok(mut child) => {
+      // 等待进程启动
+      let _ = child.wait().await;
+      info!("已打开 URL: {}", url);
+      Ok(())
+    }
+    Err(e) => {
+      let error_msg = format!("打开 URL 失败: {}", e);
+      error!("{}", error_msg);
+      Err(error_msg)
+    }
+  }
+}
+
+/// 读取剪贴板文本
+/// 使用系统命令读取剪贴板内容
+#[tauri::command]
+async fn read_clipboard() -> Result<String, String> {
+  info!("读取剪贴板");
+
+  // 根据不同平台使用系统命令读取剪贴板
+  let result = if cfg!(target_os = "windows") {
+    // Windows: 使用 PowerShell 读取剪贴板
+    tokio::process::Command::new("powershell")
+      .args(&["-Command", "Get-Clipboard"])
+      .output()
+      .await
+  } else if cfg!(target_os = "macos") {
+    // macOS: 使用 pbpaste 命令
+    tokio::process::Command::new("pbpaste")
+      .output()
+      .await
+  } else {
+    // Linux: 使用 xclip 或 xsel
+    // 尝试 xclip
+    tokio::process::Command::new("sh")
+      .args(&["-c", "xclip -selection clipboard -o 2>/dev/null || xsel -ob 2>/dev/null"])
+      .output()
+      .await
+  };
+
+  match result {
+    Ok(output) => {
+      if output.status.success() {
+        // 去除可能的换行符
+        let text = String::from_utf8_lossy(&output.stdout)
+          .trim()
+          .to_string();
+        info!("剪贴板内容长度: {}", text.len());
+        Ok(text)
+      } else {
+        let error_msg = String::from_utf8_lossy(&output.stderr).to_string();
+        error!("读取剪贴板失败: {}", error_msg);
+        Err(format!("读取剪贴板失败: {}", error_msg))
+      }
+    }
+    Err(e) => {
+      let error_msg = format!("执行命令失败: {}", e);
+      error!("{}", error_msg);
+      Err(error_msg)
+    }
+  }
+}
+
+/// 从页面获取使用量数据
+/// 创建临时的 webview 窗口加载 MinMax 页面，然后执行 JavaScript 提取使用量
+#[tauri::command]
+async fn fetch_usage_from_page() -> Result<serde_json::Value, String> {
+  info!("从页面获取使用量数据");
+
+  // MinMax 使用量页面 URL
+  let url = "https://platform.minimaxi.com/user-center/payment/coding-plan";
+  info!("目标 URL: {}", url);
+
+  // 由于 Tauri 2.x 的限制，无法直接从 Rust 端创建 webview 并执行脚本
+  // 这里返回错误，提示使用外部浏览器方式
+  // 实际的数据获取应该由前端通过 webview.executeScript 实现
+
+  info!("无法直接创建 webview，请使用前端 JS 注入方式获取数据");
+
+  Err("需要通过前端 JavaScript 注入获取页面数据".to_string())
 }
 
 /// 获取使用量数据
@@ -308,6 +408,7 @@ pub fn run() {
   let app_state = Arc::new(AppState::new());
 
   tauri::Builder::default()
+    .plugin(tauri_plugin_log::Builder::default().build())
     // 注册 Tauri 命令
     .invoke_handler(tauri::generate_handler![
       get_settings,
@@ -316,6 +417,8 @@ pub fn run() {
       send_warning_notification,
       send_error_notification,
       open_url,
+      read_clipboard,
+      fetch_usage_from_page,
       get_usage,
     ])
     .manage(app_state.clone())
