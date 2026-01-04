@@ -136,7 +136,6 @@ export function useUsage(settings: Settings): UseUsageReturn {
   const [lastUpdateTime, setLastUpdateTime] = useState<Date | null>(null);
 
   // 使用 ref 存储不会触发重渲染的状态
-  const hasSentWarning = useRef(false);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // 清理 timeout
@@ -158,12 +157,11 @@ export function useUsage(settings: Settings): UseUsageReturn {
 
     console.log('[useUsage] 获取到使用量:', percent + '%');
 
-    // 检查是否需要发送预警通知
+    // 检查是否需要发送预警通知（每次超过阈值都发送）
     const shouldNotify = percent >= settings.warningThreshold;
-    const isFirstWarning = shouldNotify && !hasSentWarning.current;
 
-    // 如果使用量超过阈值且是第一次（或者已恢复后再次超过），发送预警通知
-    if (isFirstWarning) {
+    // 如果使用量超过阈值，发送预警通知
+    if (shouldNotify) {
       console.log('[useUsage] 使用量超过阈值，触发预警:', {
         percent,
         threshold: settings.warningThreshold,
@@ -172,7 +170,6 @@ export function useUsage(settings: Settings): UseUsageReturn {
       const success = await sendWarningNotification(percent, settings.warningThreshold);
 
       if (success) {
-        hasSentWarning.current = true;
         const statusMessage = `⚠️ 预警已发送 (${percent.toFixed(1)}%)`;
         setNotificationStatus(statusMessage);
 
@@ -185,12 +182,6 @@ export function useUsage(settings: Settings): UseUsageReturn {
         }, 3000);
       } else {
         setNotificationStatus('预警发送失败');
-      }
-    } else if (!shouldNotify) {
-      // 使用量恢复到阈值以下，重置预警状态
-      if (hasSentWarning.current) {
-        console.log('[useUsage] 使用量已恢复到阈值以下，重置预警状态');
-        hasSentWarning.current = false;
       }
     }
   }, [settings.warningThreshold]);
@@ -245,7 +236,6 @@ export function useUsage(settings: Settings): UseUsageReturn {
    * 重置预警状态（用于测试或手动清除）
    */
   const resetWarningState = useCallback(() => {
-    hasSentWarning.current = false;
     setNotificationStatus('');
   }, []);
 

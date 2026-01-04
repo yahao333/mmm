@@ -101,6 +101,9 @@ export function useMinMaxWebview(): UseMinMaxWebviewReturn {
   // 存储 openMinMaxWindow 引用供事件监听器使用
   openMinMaxWindowRef.current = openMinMaxWindow;
 
+  // 使用 ref 存储上一次的使用量，用于检测变化
+  const lastPercentRef = useRef<number | null>(null);
+
   /**
    * 注册使用量事件监听器
    */
@@ -119,7 +122,12 @@ export function useMinMaxWebview(): UseMinMaxWebviewReturn {
       if (typeof percent === 'number' && Number.isFinite(percent) && percent >= 0 && percent <= 100) {
         const rounded = Math.round(percent * 10) / 10;
         console.log('[useMinMaxWebview] 自动获取到使用量:', rounded + '%');
-        console.log('[useMinMaxWebview] 设置 autoUsagePercent =', rounded);
+
+        // 只有值变化时才更新 autoUsagePercent，但始终通知监听者
+        const isChanged = lastPercentRef.current !== rounded;
+        lastPercentRef.current = rounded;
+
+        console.log('[useMinMaxWebview] 设置 autoUsagePercent =', rounded, '变化:', isChanged);
         setAutoUsagePercent(rounded);
         console.log('[useMinMaxWebview] autoUsagePercent 现在是:', rounded);
         setWebviewHint('');

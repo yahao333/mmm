@@ -126,6 +126,37 @@ const MINMAX_INIT_SCRIPT: &str = r#"
     }
   }
 
+  // 暴露 tryCollect 到全局作用域，供 Rust 后端调用
+  window.tryCollect = tryCollect;
+  console.log(TAG, '已暴露 tryCollect 到全局作用域');
+
+  // 定期从 API 获取使用量数据并发送事件
+  // 使用页面内部的 fetch，保留登录状态
+  // 注意：必须在 setup 之前定义，以便全局可访问
+  async function fetchUsageFromApi() {
+    try {
+      // 尝试从页面找到 API URL
+      // 常见的 API 模式
+      const response = await fetch('/api/billing/usage');
+      if (response.ok) {
+        const data = await response.json();
+        if (data.percent !== undefined) {
+          emitUsage(data.percent);
+          return;
+        }
+      }
+    } catch (e) {
+      // API 调用失败，继续尝试其他方式
+    }
+
+    // 如果 API 失败，使用页面内容提取
+    tryCollect();
+  }
+
+  // 暴露 fetchUsageFromApi 到全局作用域
+  window.fetchUsageFromApi = fetchUsageFromApi;
+  console.log(TAG, '已暴露 fetchUsageFromApi 到全局作用域');
+
   function setup() {
     console.log(TAG, '初始化');
     tryCollect();
@@ -141,6 +172,12 @@ const MINMAX_INIT_SCRIPT: &str = r#"
 
     // 窗口聚焦时检查
     window.addEventListener('focus', tryCollect);
+
+    // 初始获取
+    setTimeout(fetchUsageFromApi, 2000);
+
+    // 定期从 API 获取（每 60 秒）
+    setInterval(fetchUsageFromApi, 60000);
   }
 
   if (document.readyState === 'loading') {
@@ -148,6 +185,44 @@ const MINMAX_INIT_SCRIPT: &str = r#"
   } else {
     setup();
   }
+
+  // 监听外部触发信号（定时任务触发时调用）
+  // 通过 Tauri 事件监听 trigger-fetch-usage
+  function setupTauriListener() {
+    const eventEmitter = getTauriEventEmitter();
+    if (eventEmitter) {
+      // Tauri 2.x: 使用 listen API
+      if (window.__TAURI__ && window.__TAURI__.event && window.__TAURI__.event.listen) {
+        window.__TAURI__.event.listen('trigger-fetch-usage', () => {
+          console.log(TAG, '收到外部触发信号，执行数据收集');
+          tryCollect();
+        }).catch(e => console.error(TAG, '监听事件失败:', e));
+      }
+      // Tauri 内部 API
+      else if (window.__TAURI_INTERNALS__) {
+        // 定期检查是否有外部触发
+        setInterval(() => {
+          if (window.__minmax_trigger_fetch__) {
+            console.log(TAG, '检测到外部触发信号，执行数据收集');
+            tryCollect();
+            window.__minmax_trigger_fetch__ = false;
+          }
+        }, 1000);
+      }
+    }
+  }
+
+  // 延迟设置事件监听器，确保 Tauri API 已加载
+  setTimeout(setupTauriListener, 500);
+
+  // 添加：等待页面完全加载后主动触发一次收集
+  // 某些 SPA 需要更长的时间来渲染数据
+  window.addEventListener('load', function() {
+    console.log(TAG, '页面 load 事件触发');
+    setTimeout(tryCollect, 1000);
+    setTimeout(tryCollect, 3000);
+    setTimeout(tryCollect, 5000);
+  });
 })();
 "#;
 
@@ -597,45 +672,183 @@ async fn get_usage() -> Result<f64, String> {
 }
 
 /// 内部函数：触发前端获取使用量（供定时任务直接调用）
-/// 这个函数是普通异步函数，不是 tauri command
+/// 这个函数是普通函数，不是 tauri command
 /// 静默模式：只在后台静默获取数据，不显示窗口
-async fn do_trigger_fetch_usage(app: &tauri::AppHandle) {
+fn do_trigger_fetch_usage(app: &tauri::AppHandle) {
   info!("[do_trigger_fetch_usage] 开始执行（静默模式）");
 
-  // 使用 app.emit 广播事件到所有窗口（包括主窗口和 MinMax 窗口）
-  // 这样主窗口中的前端监听器就能收到事件
+  // 使用 app.emit 广播事件到主窗口（更新提示信息）
   let emit_result = app.emit("trigger-fetch-usage", {});
-  info!("[do_trigger_fetch_usage] 广播事件到所有窗口: {:?}", emit_result);
+  info!("[do_trigger_fetch_usage] 广播事件到主窗口: {:?}", emit_result);
 
-  // 检查 MinMax 窗口是否存在（窗口在应用启动时已创建）
+  // 在 MinMax 窗口中直接执行数据获取逻辑
   let window = app.get_webview_window(MINMAX_WINDOW_LABEL);
+  if let Some(win) = window {
+    // 直接执行 JavaScript 获取数据并发送事件
+    // 这个脚本会：
+    // 1. 等待页面加载完成
+    // 2. 扫描页面中的使用量数据
+    // 3. 发送事件到主窗口
+    let script = r#"
+      (function() {
+        const TAG = '[MinMax Trigger]';
+        const MAX_WAIT_MS = 10000;  // 最多等待 10 秒
+        const CHECK_INTERVAL_MS = 500;  // 每 500ms 检查一次
 
-  if let Some(_win) = window {
-    info!("[do_trigger_fetch_usage] MinMax 窗口已在后台运行，静默获取数据");
-    // 静默模式：不调用 show() 和 set_focus()，不干扰用户
-  } else {
-    // 如果窗口不存在（异常情况），静默创建
-    warn!("[do_trigger_fetch_usage] MinMax 窗口不存在，静默创建");
-    let app_clone = app.clone();
-    tokio::spawn(async move {
-      let url = MINMAX_USAGE_URL
-        .parse()
-        .expect("MinMax URL 解析失败");
+        console.log(TAG, '开始获取使用量...');
 
-      match tauri::WebviewWindowBuilder::new(&app_clone, MINMAX_WINDOW_LABEL, tauri::WebviewUrl::External(url))
-        .title("MinMax")
-        .inner_size(1100.0, 800.0)
-        .resizable(true)
-        .center()
-        .initialization_script(MINMAX_INIT_SCRIPT)
-        .visible(false)
-        .skip_taskbar(true)
-        .build()
-      {
-        Ok(_) => info!("[do_trigger_fetch_usage] MinMax 窗口已静默创建"),
-        Err(e) => error!("[do_trigger_fetch_usage] MinMax 窗口创建失败: {}", e),
+        // 获取 Tauri 事件发射器
+        function getEventEmitter() {
+          if (window.__TAURI__ && window.__TAURI__.event && window.__TAURI__.event.emit) {
+            return window.__TAURI__.event;
+          }
+          if (window.__TAURI_INTERNALS__ && window.__TAURI_INTERNALS__.emit) {
+            return { emit: window.__TAURI_INTERNALS__.emit };
+          }
+          return null;
+        }
+
+        // 发送事件
+        function sendEvent(percent) {
+          const emitter = getEventEmitter();
+          if (emitter) {
+            emitter.emit('minmax-usage', { percent: percent });
+            console.log(TAG, '发送使用量:', percent + '%');
+          } else {
+            console.warn(TAG, '无法获取事件发射器');
+          }
+        }
+
+        // 从页面提取数据 - 扫描所有可能的格式
+        function extractFromPage() {
+          if (!document.body) return null;
+
+          // 方法 1: 扫描 innerText 中的百分比
+          const text = document.body.innerText || '';
+          const matches = text.matchAll(/(\d+(?:\.\d+)?)\s*%/g);
+          let maxPercent = 0;
+          for (const m of matches) {
+            const p = parseFloat(m[1]);
+            if (p > 0 && p <= 100 && p > maxPercent) {
+              maxPercent = p;
+            }
+          }
+          if (maxPercent > 0) {
+            console.log(TAG, '方法1 (innerText):', maxPercent + '%');
+            return maxPercent;
+          }
+
+          // 方法 2: 扫描包含数字的 span/div 元素
+          const allElements = document.querySelectorAll('span, div, p, td, th');
+          for (const el of allElements) {
+            const content = el.textContent || '';
+            const match = content.match(/^(\d+(?:\.\d+)?)\s*%$/);
+            if (match) {
+              const p = parseFloat(match[1]);
+              if (p > 0 && p <= 100) {
+                console.log(TAG, '方法2 (元素文本):', p + '%');
+                return p;
+              }
+            }
+          }
+
+          // 方法 3: 查找包含"已用"、"使用量"等关键词的元素
+          const usageKeywords = ['已用', '使用量', '已消耗', '额度'];
+          for (const keyword of usageKeywords) {
+            const elements = document.querySelectorAll('*');
+            for (const el of elements) {
+              if (el.textContent && el.textContent.includes(keyword)) {
+                // 查找相邻或附近的百分比
+                const parent = el.parentElement;
+                if (parent) {
+                  const siblingText = parent.textContent || '';
+                  const percentMatch = siblingText.match(/(\d+(?:\.\d+)?)\s*%/);
+                  if (percentMatch) {
+                    const p = parseFloat(percentMatch[1]);
+                    if (p > 0 && p <= 100) {
+                      console.log(TAG, '方法3 (关键词):', p + '%');
+                      return p;
+                    }
+                  }
+                }
+              }
+            }
+          }
+
+          // 方法 4: 查找 data 属性
+          const dataElements = document.querySelectorAll('[data-percent], [data-usage], [data-value]');
+          for (const el of dataElements) {
+            const value = el.getAttribute('data-percent') || el.getAttribute('data-usage') || el.getAttribute('data-value');
+            if (value) {
+              const p = parseFloat(value);
+              if (p > 0 && p <= 100) {
+                console.log(TAG, '方法4 (data属性):', p + '%');
+                return p;
+              }
+            }
+          }
+
+          return null;
+        }
+
+        // 等待并提取数据
+        async function waitAndExtract() {
+          const startTime = Date.now();
+
+          return new Promise((resolve) => {
+            function check() {
+              const percent = extractFromPage();
+              if (percent) {
+                resolve(percent);
+                return;
+              }
+
+              const elapsed = Date.now() - startTime;
+              if (elapsed >= MAX_WAIT_MS) {
+                console.log(TAG, '等待超时，未找到使用量数据');
+                resolve(null);
+                return;
+              }
+
+              // 每 2 秒打印一次进度
+              if (elapsed % 2000 < CHECK_INTERVAL_MS) {
+                console.log(TAG, '等待中...', (elapsed / 1000).toFixed(1) + 's');
+              }
+
+              setTimeout(check, CHECK_INTERVAL_MS);
+            }
+
+            check();
+          });
+        }
+
+        // 主流程
+        waitAndExtract().then(percent => {
+          if (percent) {
+            sendEvent(percent);
+          } else {
+            console.log(TAG, '未能获取到使用量数据');
+            sendEvent(0);
+          }
+        }).catch(e => {
+          console.log(TAG, '获取使用量失败:', e.message);
+          sendEvent(0);
+        });
+
+        return 'fetching...';
+      })();
+    "#;
+
+    match win.eval(script) {
+      Ok(result) => info!("[do_trigger_fetch_usage] 执行结果: {:?}", result),
+      Err(e) => {
+        error!("[do_trigger_fetch_usage] 执行失败: {}", e);
+        let _ = app.emit("minmax-usage", serde_json::json!({ "error": "执行失败" }));
       }
-    });
+    }
+  } else {
+    warn!("[do_trigger_fetch_usage] MinMax 窗口不存在");
+    let _ = app.emit("minmax-usage", serde_json::json!({ "error": "MinMax 窗口不存在" }));
   }
 
   info!("[do_trigger_fetch_usage] 执行完成");
@@ -645,7 +858,7 @@ async fn do_trigger_fetch_usage(app: &tauri::AppHandle) {
 /// Rust 后端定时任务调用此命令，通知前端打开 MinMax 页面并获取使用量
 #[tauri::command]
 async fn trigger_fetch_usage(app: tauri::AppHandle) -> Result<(), String> {
-  do_trigger_fetch_usage(&app).await;
+  do_trigger_fetch_usage(&app);
   Ok(())
 }
 
@@ -663,7 +876,7 @@ async fn scheduled_check(app: &tauri::AppHandle, app_state: &Arc<AppState>) {
   info!("[scheduled_check] 配置: 阈值={:.1}%, 间隔={}分钟", config.warning_threshold, config.check_interval);
 
   // 调用内部函数触发前端获取使用量
-  do_trigger_fetch_usage(app).await;
+  do_trigger_fetch_usage(app);
 
   info!("[scheduled_check] 检查完成");
 }

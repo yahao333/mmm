@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 
 // 导入样式
 import './style.css';
@@ -77,10 +78,33 @@ function App() {
 
   // 监听 autoUsagePercent 变化并更新使用量
   useEffect(() => {
-    console.log('[App] autoUsagePercent 变化:', autoUsagePercent);
     if (autoUsagePercent === null) return;
     console.log('[App] 收到自动使用量，更新到面板:', autoUsagePercent + '%');
     setUsage(autoUsagePercent);
+  }, [autoUsagePercent, setUsage]);
+
+  // 监听定时任务触发信号，确保每次定时检查都执行预警检查
+  // 即使 autoUsagePercent 值没变化，也要调用 setUsage 来触发 handleUsageData
+  useEffect(() => {
+    let isMounted = true;
+
+    const handleTriggerFetch = async () => {
+      console.log('[App] 收到定时任务触发信号');
+      if (isMounted && autoUsagePercent !== null) {
+        console.log('[App] 强制调用 setUsage 执行预警检查');
+        await setUsage(autoUsagePercent);
+      }
+    };
+
+    listen('trigger-fetch-usage', handleTriggerFetch).then((unlistenFn) => {
+      if (!isMounted) {
+        unlistenFn();
+      }
+    });
+
+    return () => {
+      isMounted = false;
+    };
   }, [autoUsagePercent, setUsage]);
 
   // 计算显示的错误信息
