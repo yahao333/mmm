@@ -1,10 +1,8 @@
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use tauri::{
-  menu::{MenuBuilder, MenuItemBuilder},
-  Manager,
-};
+use tauri;
 use tokio::fs;
+use log::{info, warn, error};
 
 /// 应用配置数据结构
 /// 用于存储用户的设置选项
@@ -54,7 +52,7 @@ fn get_config_path() -> std::path::PathBuf {
 #[tauri::command]
 async fn get_settings() -> Result<AppConfig, String> {
   let config_path = get_config_path();
-  println!("[Tauri] 加载配置，路径: {:?}", config_path);
+  info!("加载配置，路径: {:?}", config_path);
 
   // 尝试读取配置文件
   match fs::read_to_string(&config_path).await {
@@ -62,12 +60,12 @@ async fn get_settings() -> Result<AppConfig, String> {
       // 解析 JSON 配置
       let config: AppConfig = serde_json::from_str(&content)
         .map_err(|e| format!("配置解析失败: {}", e))?;
-      println!("[Tauri] 配置加载成功: {:?}", config);
+      info!("配置加载成功: {:?}", config);
       Ok(config)
     }
     Err(_) => {
       // 文件不存在或读取失败，返回默认配置
-      println!("[Tauri] 配置文件不存在，使用默认配置");
+      info!("配置文件不存在，使用默认配置");
       Ok(AppConfig::default())
     }
   }
@@ -78,7 +76,7 @@ async fn get_settings() -> Result<AppConfig, String> {
 #[tauri::command]
 async fn save_settings(settings: AppConfig) -> Result<(), String> {
   let config_path = get_config_path();
-  println!("[Tauri] 保存配置，路径: {:?}, 内容: {:?}", config_path, settings);
+  info!("保存配置，路径: {:?}, 内容: {:?}", config_path, settings);
 
   // 序列化配置为 JSON
   let content = serde_json::to_string_pretty(&settings)
@@ -89,7 +87,7 @@ async fn save_settings(settings: AppConfig) -> Result<(), String> {
     .await
     .map_err(|e| format!("配置写入失败: {}", e))?;
 
-  println!("[Tauri] 配置保存成功");
+  info!("配置保存成功");
   Ok(())
 }
 
@@ -99,7 +97,7 @@ async fn send_system_notification(
   title: &str,
   body: &str,
 ) {
-  println!("[Tauri Notification] {} - {}", title, body);
+  info!("[系统通知] {} - {}", title, body);
 }
 
 /// 发送企业微信通知
@@ -111,11 +109,11 @@ async fn send_wechat_work_notification(
 ) -> Result<bool, String> {
   // 如果没有配置 Webhook URL，跳过发送
   if webhook_url.trim().is_empty() {
-    println!("[Tauri] 企业微信 Webhook URL 未配置，跳过发送");
+    info!("企业微信 Webhook URL 未配置，跳过发送");
     return Ok(false);
   }
 
-  println!("[Tauri] 准备发送企业微信通知");
+  info!("准备发送企业微信通知");
 
   // 构建企业微信消息格式（Markdown 格式）
   let message = serde_json::json!({
@@ -137,10 +135,10 @@ async fn send_wechat_work_notification(
   let status = response.status();
   let response_text = response.text().await.unwrap_or_default();
 
-  println!("[Tauri] 企业微信响应状态: {}, 内容: {}", status, response_text);
+  info!("企业微信响应状态: {}, 内容: {}", status, response_text);
 
   if status.is_success() {
-    println!("[Tauri] 企业微信通知发送成功");
+    info!("企业微信通知发送成功");
     Ok(true)
   } else {
     // 解析企业微信返回的错误信息
@@ -152,7 +150,7 @@ async fn send_wechat_work_notification(
     } else {
       format!("HTTP {}", status.as_u16())
     };
-    println!("[Tauri] 企业微信通知发送失败: {}", error_msg);
+    warn!("企业微信通知发送失败: {}", error_msg);
     Err(error_msg)
   }
 }
@@ -164,7 +162,7 @@ async fn send_warning_notification(
   usage: f64,
   threshold: f64,
 ) -> Result<(), String> {
-  println!("[Tauri] 发送预警通知，使用量: {}%, 阈值: {}%", usage, threshold);
+  info!("发送预警通知，使用量: {}%, 阈值: {}%", usage, threshold);
 
   let title = "MinMax 使用量预警";
   let body = format!("当前使用量已达到 {:.1}%，请注意配额使用情况！", usage);
@@ -187,7 +185,7 @@ async fn send_warning_notification(
 /// 发送一个测试通知来验证通知功能是否正常
 #[tauri::command]
 async fn test_notification() -> Result<(), String> {
-  println!("[Tauri] 发送测试通知");
+  info!("发送测试通知");
 
   // 发送系统通知（模拟）
   send_system_notification("MinMax Helper", "测试通知发送成功！").await;
@@ -202,7 +200,7 @@ async fn send_error_notification(
   error: String,
   config: AppConfig,
 ) -> Result<(), String> {
-  println!("[Tauri] 发送错误通知: {}", error);
+  error!("发送错误通知: {}", error);
 
   let title = "MinMax 监控异常";
   let body = format!("检查使用量时发生错误: {}", error);
@@ -224,7 +222,7 @@ async fn send_error_notification(
 /// 使用系统默认浏览器打开指定 URL
 #[tauri::command]
 async fn open_url(url: String) -> Result<(), String> {
-  println!("[Tauri] 打开 URL: {}", url);
+  info!("打开 URL: {}", url);
   Ok(())
 }
 
@@ -233,14 +231,14 @@ async fn open_url(url: String) -> Result<(), String> {
 /// 目前返回模拟数据
 #[tauri::command]
 async fn get_usage() -> Result<f64, String> {
-  println!("[Tauri] 获取使用量数据");
+  info!("获取使用量数据");
 
   // TODO: 实现真正的使用量获取逻辑
   // 通过 WebView2 注入脚本获取页面数据
 
   // 开发环境返回模拟数据（随机 0-100）
   let usage = rand::random::<f64>() % 100.0;
-  println!("[Tauri] 使用量数据（模拟）: {:.1}%", usage);
+  info!("使用量数据（模拟）: {:.1}%", usage);
 
   Ok(usage)
 }
@@ -248,13 +246,13 @@ async fn get_usage() -> Result<f64, String> {
 /// 定时检查使用量
 /// 内部函数，由定时器调用
 async fn scheduled_check() {
-  println!("[Tauri] ============= 开始定时检查 ============");
+  info!("============= 开始定时检查 =============");
 
   // 获取当前配置
   let config = match get_settings().await {
     Ok(c) => c,
     Err(e) => {
-      println!("[Tauri] 获取配置失败: {}", e);
+      error!("获取配置失败: {}", e);
       return;
     }
   };
@@ -263,30 +261,30 @@ async fn scheduled_check() {
   let usage = match get_usage().await {
     Ok(u) => u,
     Err(e) => {
-      println!("[Tauri] 获取使用量失败: {}", e);
+      error!("获取使用量失败: {}", e);
       // 发送错误通知
       let _ = send_error_notification(format!("获取使用量失败: {}", e), config).await;
       return;
     }
   };
 
-  println!("[Tauri] 获取到使用量: {:.1}%", usage);
+  info!("获取到使用量: {:.1}%", usage);
 
   // 检查是否超过阈值
   if usage >= config.warning_threshold {
-    println!("[Tauri] 使用量超过阈值 ({:.1}%)，发送预警通知", config.warning_threshold);
+    info!("使用量超过阈值 ({:.1}%)，发送预警通知", config.warning_threshold);
 
     // 发送预警通知
     let result = send_warning_notification(usage, config.warning_threshold).await;
 
     if let Err(e) = result {
-      println!("[Tauri] 发送预警通知失败: {}", e);
+      error!("发送预警通知失败: {}", e);
     }
   } else {
-    println!("[Tauri] 使用量正常 ({:.1}%)", usage);
+    info!("使用量正常 ({:.1}%)", usage);
   }
 
-  println!("[Tauri] ============= 定时检查完成 ============");
+  info!("============= 定时检查完成 =============");
 }
 
 /// 应用状态
@@ -338,7 +336,7 @@ pub fn run() {
         }
       });
 
-      println!("[Tauri] 应用初始化完成");
+      info!("应用初始化完成");
       Ok(())
     })
     .run(tauri::generate_context!())
@@ -351,7 +349,7 @@ async fn start_timer(_app: &tauri::AppHandle, app_state: &Arc<AppState>) {
   let mut running = app_state.timer_running.lock().await;
 
   if *running {
-    println!("[Tauri] 定时器已在运行中，跳过启动");
+    info!("定时器已在运行中，跳过启动");
     return;
   }
 
@@ -362,7 +360,7 @@ async fn start_timer(_app: &tauri::AppHandle, app_state: &Arc<AppState>) {
   };
 
   let interval_minutes = config.check_interval;
-  println!("[Tauri] 启动定时器，检查间隔: {} 分钟", interval_minutes);
+  info!("启动定时器，检查间隔: {} 分钟", interval_minutes);
 
   *running = true;
   let app_state_clone = app_state.clone();
@@ -383,7 +381,7 @@ async fn start_timer(_app: &tauri::AppHandle, app_state: &Arc<AppState>) {
       {
         let running = app_state_clone.timer_running.lock().await;
         if !*running {
-          println!("[Tauri] 定时器已停止");
+          info!("定时器已停止");
           break;
         }
       }
