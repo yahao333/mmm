@@ -52,11 +52,15 @@ export function useMinMaxWebview() {
     hasListener = true;
 
     await listen<{ percent?: number }>('minmax-usage', (event) => {
+      console.log('[useMinMaxWebview] 收到 minmax-usage 事件, payload:', JSON.stringify(event.payload));
       const percent = event.payload?.percent;
+      console.log('[useMinMaxWebview] 解析到的 percent:', percent, 'typeof:', typeof percent);
       if (typeof percent === 'number' && Number.isFinite(percent) && percent >= 0 && percent <= 100) {
         const rounded = Math.round(percent * 10) / 10;
         console.log('[useMinMaxWebview] 自动获取到使用量:', rounded + '%');
+        console.log('[useMinMaxWebview] 设置 autoUsagePercent.value =', rounded);
         autoUsagePercent.value = rounded;
+        console.log('[useMinMaxWebview] autoUsagePercent.value 现在是:', autoUsagePercent.value);
         webviewHint.value = '';
       } else {
         console.warn('[useMinMaxWebview] 收到无效使用量事件 payload:', event.payload);

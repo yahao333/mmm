@@ -92,6 +92,7 @@ import MonitorPanel from './components/MonitorPanel.vue';
 // 导入 hook
 import { useUsage } from './hooks/useUsage';
 import { useMinMaxWebview } from './hooks/useMinMaxWebview';
+import { useNotification } from './hooks/useNotification';
 
 /**
  * 语言资源定义
@@ -230,13 +231,32 @@ const {
   executeScriptAndFetch,
 } = useMinMaxWebview();
 
+// 使用 hook 管理通知
+const {
+  sending: notificationSending,
+  notificationState,
+  sendTestNotification,
+} = useNotification();
+
 const displayError = computed(() => error.value || webviewError.value);
-const displayNotificationStatus = computed(() => webviewHint.value || notificationStatus.value);
+const displayNotificationStatus = computed(() => {
+  // 优先显示 webview 提示
+  if (webviewHint.value) return webviewHint.value;
+  // 其次显示通知状态
+  if (notificationStatus.value) return notificationStatus.value;
+  // 最后显示通知 hook 的状态消息
+  if (notificationState.value.message) return notificationState.value.message;
+  return '';
+});
 
 watch(
   autoUsagePercent,
   async (percent) => {
-    if (percent === null) return;
+    console.log('[App] watch 触发, percent:', percent, 'typeof:', typeof percent);
+    if (percent === null) {
+      console.log('[App] percent 为 null，跳过处理');
+      return;
+    }
     console.log('[App] 收到自动使用量，更新到面板:', percent + '%');
     await setUsage(percent);
   },
@@ -311,6 +331,10 @@ async function saveSettingsToBackend(): Promise<void> {
   try {
     await invoke('save_settings', { settings });
     console.log('[App] 设置已保存');
+
+    // 验证：重新加载设置以确认保存成功
+    await loadSettingsFromBackend();
+    console.log('[App] 设置已验证:', settings);
   } catch (err) {
     console.error('[App] 保存设置失败:', err);
     localStorage.setItem('minmax_settings', JSON.stringify(settings));
@@ -323,6 +347,21 @@ async function saveSettingsToBackend(): Promise<void> {
 function toggleSettings(): void {
   showSettings.value = !showSettings.value;
   console.log('[App]', showSettings.value ? '打开设置面板' : '关闭设置面板');
+}
+
+/**
+ * 调试：检查配置文件路径和内容
+ */
+async function debugConfigPath(): Promise<void> {
+  console.log('[App] 检查配置文件...');
+  try {
+    const result = await invoke<string>('get_config_path_debug');
+    console.log('[App] 配置路径信息:', result);
+    alert(result);
+  } catch (err) {
+    console.error('[App] 获取配置路径失败:', err);
+    alert('获取配置路径失败: ' + err);
+  }
 }
 
 /**
@@ -369,12 +408,11 @@ function cancelSettings(): void {
 async function testNotification(): Promise<void> {
   console.log('[App] 发送测试通知');
 
-  try {
-    await invoke('test_notification');
+  const success = await sendTestNotification();
+  if (success) {
     alert(t('notificationSent'));
-  } catch (err) {
-    console.error('[App] 发送测试通知失败:', err);
-    alert('Failed: ' + String(err));
+  } else {
+    alert('Failed: ' + notificationState.value.message);
   }
 }
 

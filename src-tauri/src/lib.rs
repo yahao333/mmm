@@ -12,134 +12,100 @@ const MINMAX_INIT_SCRIPT: &str = r#"
 (function () {
   const TAG = '[MinMax Inject]';
   let lastSentPercent = null;
-  let scheduled = false;
-  let lastMissingTauriLogTs = 0;
-  let lastCollectLogTs = 0;
-
-  function debugSnapshot(extra) {
-    const tauri = window.__TAURI__;
-    const internals = window.__TAURI_INTERNALS__;
-    return Object.assign({
-      href: (typeof location !== 'undefined' && location.href) ? location.href : null,
-      origin: (typeof location !== 'undefined' && location.origin) ? location.origin : null,
-      readyState: (typeof document !== 'undefined' && document.readyState) ? document.readyState : null,
-      hasWindowTauri: !!tauri,
-      hasWindowTauriInternals: typeof internals !== 'undefined',
-      tauriKeys: tauri ? Object.keys(tauri) : null,
-      eventKeys: (tauri && tauri.event) ? Object.keys(tauri.event) : null
-    }, extra || {});
-  }
+  let collectCount = 0;
 
   function isValidPercent(p) {
-    return typeof p === 'number' && Number.isFinite(p) && p >= 0 && p <= 100;
+    return typeof p === 'number' && Number.isFinite(p) && p > 0 && p <= 100;
   }
 
-  function extractUsagePercentFromText(text) {
+  function extractUsageFromText(text) {
     if (!text) return null;
-    const percentUsedMatch = text.match(/(\d+(?:\.\d+)?)\s*%\s*(?:已使用|已消耗|已用)/);
-    if (percentUsedMatch) {
-      const percent = parseFloat(percentUsedMatch[1]);
-      if (isValidPercent(percent)) return percent;
-    }
 
-    const usageMatch = text.match(/已使用\s*(\d+(?:\.\d+)?)\s*[\/｜|]\s*(\d+(?:\.\d+)?)/);
-    if (usageMatch) {
-      const used = parseFloat(usageMatch[1]);
-      const total = parseFloat(usageMatch[2]);
-      if (Number.isFinite(used) && Number.isFinite(total) && total > 0 && used <= total && used >= 0) {
-        const percent = (used / total) * 100;
-        if (isValidPercent(percent)) return percent;
+    // 策略：扫描所有 "XX%" 格式，选择最大的那个值
+    // MinMax 使用量通常接近 100%，所以选择最大值最合理
+    const matches = text.matchAll(/(\d+(?:\.\d+)?)\s*%/g);
+    let maxPercent = 0;
+    let maxContext = '';
+
+    for (const m of matches) {
+      const p = parseFloat(m[1]);
+      if (!isValidPercent(p)) continue;
+
+      // 获取上下文
+      const idx = m.index;
+      const start = Math.max(0, idx - 15);
+      const end = Math.min(text.length, idx + m[0].length + 15);
+      const context = text.substring(start, end).replace(/\s+/g, ' ').trim();
+
+      if (p > maxPercent) {
+        maxPercent = p;
+        maxContext = context;
       }
     }
 
-    return null;
-  }
+    if (maxPercent > 0) {
+      console.log(TAG, '选择最大值:', maxPercent + '%', '上下文:', maxContext);
+      return maxPercent;
+    }
 
-  function getTauriEventEmit() {
-    const tauri = window.__TAURI__;
-    const eventApi = tauri && tauri.event;
-    const emit = eventApi && eventApi.emit;
-    if (typeof emit === 'function') return emit.bind(eventApi);
     return null;
   }
 
   function emitUsage(percent) {
     try {
-      const emit = getTauriEventEmit();
-      if (!emit) {
-        const now = Date.now();
-        if (now - lastMissingTauriLogTs >= 3000) {
-          lastMissingTauriLogTs = now;
-          console.warn(TAG, 'Tauri event API 不可用，跳过上报', debugSnapshot({ percent }));
-        }
+      const tauri = window.__TAURI__;
+      if (!tauri || !tauri.event || !tauri.event.emit) {
+        console.warn(TAG, 'Tauri event API 不可用');
         return false;
       }
-
-      emit('minmax-usage', { percent: percent });
-      console.log(TAG, '已上报使用量:', percent + '%', debugSnapshot());
+      tauri.event.emit('minmax-usage', { percent: percent });
+      console.log(TAG, '上报使用量:', percent + '%');
       return true;
     } catch (e) {
-      console.error(TAG, '上报使用量失败:', e, debugSnapshot({ percent }));
+      console.error(TAG, '上报失败:', e);
       return false;
     }
   }
 
-  function tryCollectAndEmit() {
-    try {
-      if (!document || !document.body) return;
-      const text = document.body.innerText || '';
-      const percent = extractUsagePercentFromText(text);
-      if (!isValidPercent(percent)) return;
+  function tryCollect() {
+    if (!document || !document.body) return;
+    collectCount++;
 
-      const rounded = Math.round(percent * 10) / 10;
-      const now = Date.now();
-      if (now - lastCollectLogTs >= 5000) {
-        lastCollectLogTs = now;
-        console.log(TAG, '已解析到使用量:', rounded + '%', debugSnapshot());
-      }
+    const text = document.body.innerText || '';
+    const percent = extractUsageFromText(text);
 
-      if (lastSentPercent !== null && Math.abs(rounded - lastSentPercent) < 0.1) return;
+    if (!percent) return;
 
-      const ok = emitUsage(rounded);
-      if (ok) {
-        lastSentPercent = rounded;
-      }
-    } catch (e) {
-      console.error(TAG, '提取使用量失败:', e, debugSnapshot());
+    const rounded = Math.round(percent * 10) / 10;
+
+    // 值变化超过 1% 或前 3 次才打印日志
+    if (lastSentPercent === null || Math.abs(rounded - lastSentPercent) >= 1 || collectCount <= 3) {
+      console.log(TAG, '检测 #' + collectCount + ':', rounded + '%', '(上次:', lastSentPercent + ')');
+    }
+
+    // 跳过无明显变化的值
+    if (lastSentPercent !== null && Math.abs(rounded - lastSentPercent) < 0.5) return;
+
+    if (emitUsage(rounded)) {
+      lastSentPercent = rounded;
     }
   }
 
-  function scheduleCollect() {
-    if (scheduled) return;
-    scheduled = true;
-    setTimeout(function () {
-      scheduled = false;
-      tryCollectAndEmit();
-    }, 600);
-  }
-
   function setup() {
-    console.log(TAG, '初始化完成，开始监听页面变化', debugSnapshot());
+    console.log(TAG, '初始化');
+    tryCollect();
 
-    tryCollectAndEmit();
-
+    // 监听 DOM 变化
     const observer = new MutationObserver(function () {
-      scheduleCollect();
+      setTimeout(tryCollect, 300);
     });
+    observer.observe(document.body, { childList: true, subtree: true });
 
-    observer.observe(document.documentElement || document.body, {
-      childList: true,
-      subtree: true,
-      characterData: true
-    });
+    // 定时检查
+    setInterval(tryCollect, 3000);
 
-    setInterval(function () {
-      tryCollectAndEmit();
-    }, 2500);
-
-    window.addEventListener('focus', function () {
-      scheduleCollect();
-    });
+    // 窗口聚焦时检查
+    window.addEventListener('focus', tryCollect);
   }
 
   if (document.readyState === 'loading') {
@@ -209,10 +175,16 @@ async fn get_settings() -> Result<AppConfig, String> {
       info!("配置加载成功: {:?}", config);
       Ok(config)
     }
-    Err(_) => {
-      // 文件不存在或读取失败，返回默认配置
+    Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+      // 文件不存在，返回默认配置
       info!("配置文件不存在，使用默认配置");
       Ok(AppConfig::default())
+    }
+    Err(e) => {
+      // 其他读取错误，返回错误信息
+      let error_msg = format!("读取配置文件失败: {}", e);
+      error!("{}", error_msg);
+      Err(error_msg)
     }
   }
 }
@@ -234,16 +206,78 @@ async fn save_settings(settings: AppConfig) -> Result<(), String> {
     .map_err(|e| format!("配置写入失败: {}", e))?;
 
   info!("配置保存成功");
+
+  // 验证：立即读取并返回配置内容用于调试
+  match fs::read_to_string(&config_path).await {
+    Ok(content) => {
+      info!("配置文件内容: {}", content);
+    }
+    Err(e) => {
+      error!("验证读取配置文件失败: {}", e);
+    }
+  }
+
   Ok(())
 }
 
-/// 发送系统通知（模拟）
-/// 在 Tauri 中使用日志模拟通知，后续可替换为系统原生 API
+/// 调试：获取配置文件路径
+#[tauri::command]
+async fn get_config_path_debug() -> Result<String, String> {
+  let path = get_config_path();
+  let content = match fs::read_to_string(&path).await {
+    Ok(c) => c,
+    Err(e) => format!("读取失败: {}", e),
+  };
+  Ok(format!("路径: {:?}\n内容: {}", path, content))
+}
+
+/// 发送系统通知
+/// 根据不同平台使用系统命令发送通知
 async fn send_system_notification(
   title: &str,
   body: &str,
-) {
-  info!("[系统通知] {} - {}", title, body);
+) -> Result<(), String> {
+  info!("发送系统通知: {} - {}", title, body);
+
+  // 根据不同平台发送系统通知
+  let result = if cfg!(target_os = "windows") {
+    // Windows: 使用 PowerShell 发送 Toast 通知
+    // 注意: Windows 通知需要应用先注册，这里使用简单的消息框作为后备
+    let script = format!(r#"
+      Add-Type -AssemblyName System.Windows.Forms
+      [System.Windows.Forms.MessageBox]::Show("{}", "{}", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Information)
+    "#, body.replace('"', "\\\""), title);
+    tokio::process::Command::new("powershell")
+      .args(&["-Command", &script])
+      .spawn()
+  } else if cfg!(target_os = "macos") {
+    // macOS: 使用 osascript 发送通知
+    tokio::process::Command::new("osascript")
+      .args(&[
+        "-e",
+        &format!("display notification \"{}\" with title \"{}\"", body, title),
+      ])
+      .spawn()
+  } else {
+    // Linux: 使用 notify-send 命令
+    tokio::process::Command::new("notify-send")
+      .args(&[title, body])
+      .spawn()
+  };
+
+  match result {
+    Ok(mut child) => {
+      let _ = child.wait().await;
+      info!("系统通知已发送: {}", title);
+      Ok(())
+    }
+    Err(e) => {
+      // 如果系统通知失败，回退到日志记录
+      warn!("发送系统通知失败: {}，回退到日志记录", e);
+      info!("[通知] {} - {}", title, body);
+      Ok(())
+    }
+  }
 }
 
 /// 发送企业微信通知
@@ -313,8 +347,8 @@ async fn send_warning_notification(
   let title = "MinMax 使用量预警";
   let body = format!("当前使用量已达到 {:.1}%，请注意配额使用情况！", usage);
 
-  // 发送系统通知（模拟）
-  send_system_notification(title, &body).await;
+  // 发送系统通知
+  let _ = send_system_notification(title, &body).await;
 
   // 获取配置，发送企业微信通知
   let config = get_settings().await?;
@@ -333,8 +367,8 @@ async fn send_warning_notification(
 async fn test_notification() -> Result<(), String> {
   info!("发送测试通知");
 
-  // 发送系统通知（模拟）
-  send_system_notification("MinMax Helper", "测试通知发送成功！").await;
+  // 发送系统通知
+  let _ = send_system_notification("MinMax Helper", "测试通知发送成功！").await;
 
   Ok(())
 }
@@ -351,8 +385,8 @@ async fn send_error_notification(
   let title = "MinMax 监控异常";
   let body = format!("检查使用量时发生错误: {}", error);
 
-  // 发送系统通知（模拟）
-  send_system_notification(title, &body).await;
+  // 发送系统通知
+  let _ = send_system_notification(title, &body).await;
 
   // 发送企业微信通知
   let _ = send_wechat_work_notification(
@@ -592,6 +626,7 @@ pub fn run() {
     .invoke_handler(tauri::generate_handler![
       get_settings,
       save_settings,
+      get_config_path_debug,
       test_notification,
       send_warning_notification,
       send_error_notification,

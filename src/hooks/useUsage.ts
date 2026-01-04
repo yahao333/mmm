@@ -94,7 +94,7 @@ async function pasteFromClipboard(): Promise<number | null> {
  * @param percent 当前使用量百分比
  * @param threshold 预警阈值
  */
-async function sendWarningNotification(percent: number, threshold: number): Promise<void> {
+async function sendWarningNotification(percent: number, threshold: number): Promise<boolean> {
   console.log('[useUsage] 发送预警通知，使用量:', percent + '%');
 
   try {
@@ -102,23 +102,29 @@ async function sendWarningNotification(percent: number, threshold: number): Prom
       usage: percent,
       threshold,
     });
+    return true;
   } catch (err) {
     console.error('[useUsage] 发送预警通知失败:', err);
+    return false;
   }
 }
 
 /**
  * 使用使用量数据管理
  * @param settings 当前设置
+ * @param onNotify 通知回调函数（可选）
  * @returns 使用量相关状态和方法
  */
-export function useUsage(settings: Settings) {
+export function useUsage(settings: Settings, onNotify?: (success: boolean, message: string) => void) {
   // 响应式状态
   const loading = ref(false);                        // 加载状态
   const error = ref<string | null>(null);            // 错误信息
   const usagePercent = ref<number | null>(null);     // 使用量百分比
   const notificationStatus = ref('');                // 通知状态提示
   const lastUpdateTime = ref<Date | null>(null);     // 最后更新时间
+
+  // 记录是否已发送过预警（避免重复发送）
+  const hasSentWarning = ref(false);
 
   /**
    * 处理使用量数据
@@ -131,19 +137,47 @@ export function useUsage(settings: Settings) {
 
     console.log('[useUsage] 获取到使用量:', percent + '%');
 
-    // 如果使用量超过阈值，发送预警通知
-    if (percent >= settings.warningThreshold) {
+    // 检查是否需要发送预警通知
+    const shouldNotify = percent >= settings.warningThreshold;
+    const isFirstWarning = shouldNotify && !hasSentWarning.value;
+
+    // 如果使用量超过阈值且是第一次（或者已恢复后再次超过），发送预警通知
+    if (isFirstWarning) {
       console.log('[useUsage] 使用量超过阈值，触发预警:', {
         percent,
         threshold: settings.warningThreshold,
       });
-      await sendWarningNotification(percent, settings.warningThreshold);
 
-      // 显示通知状态提示
-      notificationStatus.value = '通知已发送';
-      setTimeout(() => {
-        notificationStatus.value = '';
-      }, 3000);
+      const success = await sendWarningNotification(percent, settings.warningThreshold);
+
+      if (success) {
+        hasSentWarning.value = true;
+        const statusMessage = `⚠️ 预警已发送 (${percent.toFixed(1)}%)`;
+        notificationStatus.value = statusMessage;
+
+        // 回调通知
+        if (onNotify) {
+          onNotify(true, statusMessage);
+        }
+
+        // 3秒后清除状态提示
+        setTimeout(() => {
+          notificationStatus.value = '';
+        }, 3000);
+      } else {
+        const errorMessage = '预警发送失败';
+        notificationStatus.value = errorMessage;
+
+        if (onNotify) {
+          onNotify(false, errorMessage);
+        }
+      }
+    } else if (!shouldNotify) {
+      // 使用量恢复到阈值以下，重置预警状态
+      if (hasSentWarning.value) {
+        console.log('[useUsage] 使用量已恢复到阈值以下，重置预警状态');
+        hasSentWarning.value = false;
+      }
     }
   }
 
@@ -195,6 +229,14 @@ export function useUsage(settings: Settings) {
     return usagePercent.value !== null && usagePercent.value >= settings.warningThreshold;
   }
 
+  /**
+   * 重置预警状态（用于测试或手动清除）
+   */
+  function resetWarningState(): void {
+    hasSentWarning.value = false;
+    notificationStatus.value = '';
+  }
+
   return {
     // 响应式状态
     loading,
@@ -207,5 +249,6 @@ export function useUsage(settings: Settings) {
     // 方法
     paste,
     setUsage,
+    resetWarningState,
   };
 }
