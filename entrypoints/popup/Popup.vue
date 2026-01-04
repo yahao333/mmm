@@ -22,6 +22,10 @@
         <input type="number" v-model.number="checkInterval" min="1" class="form-input" />
       </div>
       <div class="form-group">
+        <label>{{ t('wechatWorkWebhookUrl') }}</label>
+        <input type="text" v-model="wechatWorkWebhookUrl" class="form-input" :placeholder="t('wechatWorkWebhookUrlPlaceholder')" />
+      </div>
+      <div class="form-group">
         <button @click="testNotification" class="test-btn">{{ t('testNotification') }}</button>
       </div>
       <div class="settings-actions">
@@ -92,6 +96,8 @@ const messages = {
     invalidInterval: '后台检查间隔必须大于 0 分钟',
     testNotification: '测试系统通知',
     notificationSent: '通知已发送',
+    wechatWorkWebhookUrl: '企业微信 Webhook URL',
+    wechatWorkWebhookUrlPlaceholder: 'https://qyapi.weixin.qq.com/... (可选)',
     // 错误信息映射
     '请在 MinMax 页面打开扩展': '请在 MinMax 页面打开扩展',
     '未能在页面中找到使用量数据，请确认是否在正确的页面上': '未能在页面中找到使用量数据，请确认是否在正确的页面上',
@@ -117,6 +123,8 @@ const messages = {
     invalidInterval: 'Check interval must be greater than 0 minutes',
     testNotification: 'Test Notification',
     notificationSent: 'Notification Sent',
+    wechatWorkWebhookUrl: 'WeChat Work Webhook URL',
+    wechatWorkWebhookUrlPlaceholder: 'https://qyapi.weixin.qq.com/... (optional)',
     // Error mapping
     '请在 MinMax 页面打开扩展': 'Please open extension on MinMax page',
     '未能在页面中找到使用量数据，请确认是否在正确的页面上': 'Usage data not found on page',
@@ -138,6 +146,7 @@ const threshold = ref(90);           // 预警阈值
 const checkInterval = ref(30);       // 检查间隔
 const currentLang = ref<Lang>('en'); // 当前语言，默认英文
 const notificationStatus = ref('');  // 通知状态提示
+const wechatWorkWebhookUrl = ref(''); // 企业微信 Webhook URL
 
 /**
  * 获取翻译文本
@@ -175,10 +184,14 @@ function openMinMaxPage() {
  * 加载设置
  */
 async function loadSettings() {
-  const result = await chrome.storage.local.get(['warningThreshold', 'checkInterval', 'language']);
-  if (result.warningThreshold !== undefined) threshold.value = result.warningThreshold;
-  if (result.checkInterval !== undefined) checkInterval.value = result.checkInterval;
+  const result = await chrome.storage.local.get(['warningThreshold', 'checkInterval', 'language', 'wechatWorkWebhookUrl']);
+  const storedThreshold = typeof result.warningThreshold === 'number' ? result.warningThreshold : Number(result.warningThreshold);
+  if (Number.isFinite(storedThreshold)) threshold.value = storedThreshold;
+
+  const storedInterval = typeof result.checkInterval === 'number' ? result.checkInterval : Number(result.checkInterval);
+  if (Number.isFinite(storedInterval)) checkInterval.value = storedInterval;
   if (result.language !== undefined) currentLang.value = result.language as Lang;
+  if (result.wechatWorkWebhookUrl !== undefined) wechatWorkWebhookUrl.value = result.wechatWorkWebhookUrl;
 }
 
 /**
@@ -196,14 +209,23 @@ function toggleSettings() {
  */
 async function saveSettings() {
   // 校验检查间隔
-  if (checkInterval.value <= 0) {
+  if (!Number.isFinite(checkInterval.value) || checkInterval.value <= 0) {
     alert(t('invalidInterval'));
     return;
   }
 
+  const sanitizedThreshold = Number.isFinite(threshold.value) ? Math.min(100, Math.max(0, threshold.value)) : 90;
+  const sanitizedInterval = checkInterval.value;
+
+  if (sanitizedThreshold !== threshold.value) {
+    console.warn('[MinMax Popup] 预警阈值超出范围，已自动修正:', { before: threshold.value, after: sanitizedThreshold });
+    threshold.value = sanitizedThreshold;
+  }
+
   await chrome.storage.local.set({
-    warningThreshold: threshold.value,
-    checkInterval: checkInterval.value
+    warningThreshold: sanitizedThreshold,
+    checkInterval: sanitizedInterval,
+    wechatWorkWebhookUrl: wechatWorkWebhookUrl.value
   });
   showSettings.value = false;
 }

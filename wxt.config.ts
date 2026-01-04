@@ -21,5 +21,9 @@ export default defineConfig({
       'scripting',
       'alarms',
     ],
+    // 允许访问企业微信 API 域名
+    host_permissions: [
+      'https://qyapi.weixin.qq.com/*',
+    ],
   },
 });

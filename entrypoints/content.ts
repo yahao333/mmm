@@ -11,32 +11,26 @@ function findUsagePercent(): number | null {
   console.log('[MinMax Content] 开始查找使用量数据...');
   console.log('[MinMax Content] 页面文本长度:', pageText.length);
 
-  // 方法1: 查找纯百分比格式，如 "85%"
-  const percentMatch = pageText.match(/(\d+(?:\.\d+)?)%/);
-  if (percentMatch) {
-    const percent = parseFloat(percentMatch[1]);
-    console.log('[MinMax Content] 方法1-纯百分比匹配成功:', percent + '%');
-    return percent;
+  // 方法1: 匹配百分比格式（数字后跟百分号）
+  // 页面显示格式：18%、85.5% 等
+  // 验证：百分比后紧跟"已使用"或"已消耗"等关键词
+  const percentUsedMatch = pageText.match(/(\d+(?:\.\d+)?)\s*%\s*(?:已使用|已消耗|已用)/);
+  if (percentUsedMatch) {
+    const percent = parseFloat(percentUsedMatch[1]);
+    if (percent > 0 && percent <= 100) {
+      console.log('[MinMax Content] 方法1-百分比已使用格式匹配成功:', percent + '%');
+      return percent;
+    }
   }
 
-  // 方法2: 查找 "已使用 X/Y" 格式
+  // 方法2: 匹配 "已使用 X/Y" 格式（备用）
   const usageMatch = pageText.match(/已使用\s*(\d+(?:\.\d+)?)\s*[\/｜|]\s*(\d+(?:\.\d+)?)/);
   if (usageMatch) {
     const used = parseFloat(usageMatch[1]);
     const total = parseFloat(usageMatch[2]);
-    const percent = (used / total) * 100;
-    console.log('[MinMax Content] 方法2-已使用格式匹配成功:', percent + '%', `(已使用 ${used}/${total})`);
-    return percent;
-  }
-
-  // 方法3: 查找数字对格式，如 "85 / 100"
-  const ratioMatch = pageText.match(/(\d+(?:\.\d+)?)\s*[\/｜|]\s*(\d+(?:\.\d+)?)/);
-  if (ratioMatch) {
-    const used = parseFloat(ratioMatch[1]);
-    const total = parseFloat(ratioMatch[2]);
-    if (total > 0) {
+    if (total > 0 && used <= total && used > 0) {
       const percent = (used / total) * 100;
-      console.log('[MinMax Content] 方法3-数字对格式匹配成功:', percent + '%', `(已使用 ${used}/${total})`);
+      console.log('[MinMax Content] 方法2-已使用格式匹配成功:', percent + '%', `(已使用 ${used}/${total})`);
       return percent;
     }
   }
@@ -53,6 +47,12 @@ function main(): void {
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     console.log('[MinMax Content] 收到消息:', message);
 
+    if (message.action === 'ping') {
+      // ping/pong 健康检查
+      sendResponse({ pong: true });
+      return false;
+    }
+
     if (message.action === 'getUsage') {
       // 获取当前页面使用量
       const usage = findUsagePercent();
@@ -62,6 +62,7 @@ function main(): void {
         success: usage !== null,
         usage: usage,
       });
+      return false;
     }
 
     // 返回 true 表示异步响应
