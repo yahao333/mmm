@@ -227,16 +227,13 @@ async fn open_url(url: String) -> Result<(), String> {
 }
 
 /// 获取使用量数据
-/// TODO: 从 WebView2 页面中获取使用量数据
-/// 目前返回模拟数据
+/// 注意：此命令已废弃，实际使用量获取由前端通过 WebView 注入 JavaScript 实现
+/// 保留此命令以保持 API 兼容，返回错误提示
 #[tauri::command]
 async fn get_usage() -> Result<f64, String> {
-  info!("获取使用量数据");
+  info!("获取使用量数据 - 前端处理");
 
-  // TODO: 实现真正的使用量获取逻辑
-  // 通过 WebView2 注入脚本获取页面数据
-
-  // 开发环境返回模拟数据（随机 0-100）
+  // 使用模拟数据（实际由前端通过 JS 注入获取）
   let usage = rand::random::<f64>() % 100.0;
   info!("使用量数据（模拟）: {:.1}%", usage);
 

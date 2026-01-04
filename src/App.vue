@@ -3,6 +3,15 @@
     <header class="app-header">
       <h1>{{ t('title') }}</h1>
       <div class="header-actions">
+        <!-- 模式切换按钮 -->
+        <button
+          class="mode-toggle"
+          :class="viewMode"
+          @click="toggleViewMode"
+          :title="viewMode === 'monitor' ? t('openBrowser') : t('backToMonitor')"
+        >
+          {{ viewMode === 'monitor' ? '🌐' : '📊' }}
+        </button>
         <button class="lang-toggle" @click="toggleLanguage" :title="t('toggleLanguage')">
           {{ currentLang === 'en' ? '中' : 'EN' }}
         </button>
@@ -64,8 +73,8 @@
         </div>
       </div>
 
-      <!-- 主界面 -->
-      <div v-else class="main-content">
+      <!-- 监控模式 -->
+      <div v-else-if="viewMode === 'monitor'" class="monitor-mode">
         <div v-if="loading" class="loading">
           {{ t('loading') }}
         </div>
@@ -82,7 +91,7 @@
           </div>
           <button
             v-if="error === 'needLogin'"
-            @click="openMinMaxPage"
+            @click="openMinMaxBrowser"
             class="link-btn"
           >
             {{ t('goToPage') }}
@@ -99,24 +108,74 @@
           <div class="progress-bar">
             <div
               class="progress-fill"
-              :class="{ 'warning': usagePercent >= settings.warningThreshold }"
-              :style="{ width: usagePercent + '%' }"
+              :class="{ 'warning': usagePercent !== null && usagePercent >= settings.warningThreshold }"
+              :style="{ width: (usagePercent || 0) + '%' }"
             ></div>
           </div>
 
           <div
             class="status"
-            :class="{ 'warning': usagePercent >= settings.warningThreshold }"
+            :class="{ 'warning': usagePercent !== null && usagePercent >= settings.warningThreshold }"
           >
             {{
-              usagePercent >= settings.warningThreshold
+              usagePercent !== null && usagePercent >= settings.warningThreshold
                 ? t('warningMsg').replace('{threshold}', settings.warningThreshold.toString())
                 : t('normalMsg')
             }}
           </div>
 
-          <button @click="refreshData" class="refresh-btn">
-            {{ t('refresh') }}
+          <div class="action-buttons">
+            <button @click="refreshData" class="refresh-btn">
+              {{ t('refresh') }}
+            </button>
+            <button @click="openMinMaxBrowser" class="browser-btn">
+              {{ t('openBrowser') }}
+            </button>
+          </div>
+        </div>
+
+        <!-- 登录提示 -->
+        <div v-if="!loading && !error && usagePercent === null" class="login-prompt">
+          <p>{{ t('needLogin') }}</p>
+          <button @click="openMinMaxBrowser" class="link-btn">
+            {{ t('goToPage') }}
+          </button>
+        </div>
+      </div>
+
+      <!-- 浏览器模式 -->
+      <div v-else class="browser-mode">
+        <div class="browser-toolbar">
+          <button @click="goBack" class="nav-btn" :disabled="!canGoBack">
+            ←
+          </button>
+          <button @click="goForward" class="nav-btn" :disabled="!canGoForward">
+            →
+          </button>
+          <button @click="refreshBrowser" class="nav-btn">
+            ↻
+          </button>
+          <input
+            type="text"
+            v-model="currentUrl"
+            class="url-input"
+            readonly
+          />
+          <button @click="openInExternal" class="nav-btn" title="在外部浏览器打开">
+            ◖
+          </button>
+        </div>
+        <webview
+          id="minmax-webview"
+          :src="targetUrl"
+          class="webview"
+          allowpopups
+        ></webview>
+        <!-- 登录确认按钮 -->
+        <div class="login-confirm-overlay">
+          <p class="login-prompt-text">{{ t('loginPrompt') }}</p>
+          <button @click="confirmLogin" class="confirm-login-btn">
+            {{ t('confirmLogin') }}
           </button>
         </div>
       </div>
@@ -125,8 +184,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted, computed } from 'vue';
+import { ref, reactive, onMounted, onUnmounted, computed, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 
 /**
  * 语言资源定义
@@ -147,6 +207,8 @@ const messages: Record<string, Record<string, string>> = {
     normalMsg: '✓ 使用量正常',
     refresh: '刷新数据',
     goToPage: '前往 MinMax 页面',
+    openBrowser: '打开浏览器',
+    backToMonitor: '返回监控',
     invalidInterval: '后台检查间隔必须大于 0 分钟',
     testNotification: '测试系统通知',
     notificationSent: '通知已发送',
@@ -154,6 +216,10 @@ const messages: Record<string, Record<string, string>> = {
     wechatWorkWebhookUrlPlaceholder: 'https://qyapi.weixin.qq.com/... (可选)',
     needLogin: '请先登录 MinMax 平台',
     fetchFailed: '获取数据失败',
+    browserLoading: '页面加载中...',
+    pleaseLogin: '请在下方登录 MinMax 账号',
+    confirmLogin: '我已登录',
+    loginPrompt: '请登录 MinMax 账号以查看使用量',
   },
   en: {
     title: 'MinMax Usage Monitor',
@@ -170,6 +236,8 @@ const messages: Record<string, Record<string, string>> = {
     normalMsg: '✓ Usage is normal',
     refresh: 'Refresh Data',
     goToPage: 'Go to MinMax Page',
+    openBrowser: 'Open Browser',
+    backToMonitor: 'Back to Monitor',
     invalidInterval: 'Check interval must be greater than 0 minutes',
     testNotification: 'Test Notification',
     notificationSent: 'Notification Sent',
@@ -177,6 +245,10 @@ const messages: Record<string, Record<string, string>> = {
     wechatWorkWebhookUrlPlaceholder: 'https://qyapi.weixin.qq.com/... (optional)',
     needLogin: 'Please login to MinMax platform first',
     fetchFailed: 'Failed to fetch data',
+    browserLoading: 'Loading page...',
+    pleaseLogin: 'Please login to MinMax below',
+    confirmLogin: 'I\'m logged in',
+    loginPrompt: 'Please login to MinMax to view usage',
   },
 };
 
@@ -184,6 +256,11 @@ const messages: Record<string, Record<string, string>> = {
  * 语言类型
  */
 type Lang = 'zh' | 'en';
+
+/**
+ * 视图模式
+ */
+type ViewMode = 'monitor' | 'browser';
 
 /**
  * 设置数据接口
@@ -198,10 +275,15 @@ interface Settings {
 // 响应式状态
 const loading = ref(true);                        // 加载状态
 const error = ref('');                            // 错误信息
-const usagePercent = ref(0);                      // 使用量百分比
+const usagePercent = ref<number | null>(null);    // 使用量百分比
 const showSettings = ref(false);                  // 是否显示设置面板
 const currentLang = ref<Lang>('zh');              // 当前语言
 const notificationStatus = ref('');               // 通知状态提示
+const viewMode = ref<ViewMode>('monitor');        // 视图模式
+const currentUrl = ref('');                       // 当前浏览器 URL
+const targetUrl = ref('https://platform.minimaxi.com/user-center/payment/coding-plan'); // 目标 URL
+const canGoBack = ref(false);                     // 是否可以后退
+const canGoForward = ref(false);                  // 是否可以前进
 
 // 设置数据
 const settings = reactive<Settings>({
@@ -210,6 +292,36 @@ const settings = reactive<Settings>({
   wechatWorkWebhookUrl: '',
   language: 'zh',
 });
+
+// MinMax 使用量页面 URL
+const MINMAX_USAGE_URL = 'https://platform.minimaxi.com/user-center/payment/coding-plan';
+// MinMax 登录页面 URL
+const MINMAX_LOGIN_URL = 'https://platform.minimaxi.com/user-center/login';
+// 登录状态存储 key
+const LOGIN_STATUS_KEY = 'minmax_logged_in';
+
+/**
+ * 检查是否已登录
+ */
+function checkIsLoggedIn(): boolean {
+  return localStorage.getItem(LOGIN_STATUS_KEY) === 'true';
+}
+
+/**
+ * 设置登录状态
+ */
+function setLoggedIn(): void {
+  localStorage.setItem(LOGIN_STATUS_KEY, 'true');
+  console.log('[MinMax App] 已设置登录状态');
+}
+
+/**
+ * 清除登录状态（用于退出登录）
+ */
+function clearLoginStatus(): void {
+  localStorage.removeItem(LOGIN_STATUS_KEY);
+  console.log('[MinMax App] 已清除登录状态');
+}
 
 /**
  * 获取翻译文本
@@ -241,18 +353,129 @@ async function toggleLanguage(): Promise<void> {
 }
 
 /**
- * 打开 MinMax 页面
- * 在 WebView2 中打开 MinMax 使用量页面
+ * 切换视图模式
  */
-async function openMinMaxPage(): Promise<void> {
-  console.log('[MinMax App] 打开 MinMax 页面');
-  // 通过 Tauri shell 插件打开 URL
-  if (typeof window !== 'undefined' && (window as any).__TAURI__) {
-    await (window as any).__TAURI__.shell.open('https://platform.minimaxi.com/user-center/payment/coding-plan');
+async function toggleViewMode(): Promise<void> {
+  if (viewMode.value === 'monitor') {
+    // 切换到浏览器模式
+    viewMode.value = 'browser';
+    console.log('[MinMax App] 切换到浏览器模式');
   } else {
-    // 开发环境下直接跳转
-    window.location.href = 'https://platform.minimaxi.com/user-center/payment/coding-plan';
+    // 切换回监控模式
+    viewMode.value = 'monitor';
+    console.log('[MinMax App] 切换到监控模式');
+    // 刷新数据
+    await refreshData();
   }
+}
+
+/**
+ * 在浏览器模式中打开 MinMax 页面
+ */
+async function openMinMaxBrowser(): Promise<void> {
+  console.log('[MinMax App] 打开 MinMax 浏览器');
+
+  // 导航到 MinMax 使用量页面
+  targetUrl.value = MINMAX_USAGE_URL;
+  viewMode.value = 'browser';
+
+  // 更新窗口标题
+  try {
+    const appWindow = getCurrentWindow();
+    await appWindow.setTitle('MinMax Helper - 浏览器');
+  } catch (err) {
+    console.error('[MinMax App] 设置窗口标题失败:', err);
+  }
+}
+
+/**
+ * 在外部浏览器中打开 URL
+ */
+async function openInExternal(): Promise<void> {
+  console.log('[MinMax App] 在外部浏览器中打开:', currentUrl.value);
+
+  try {
+    await invoke('open_url', { url: currentUrl.value });
+  } catch (err) {
+    console.error('[MinMax App] 打开外部浏览器失败:', err);
+  }
+}
+
+/**
+ * 后退
+ */
+function goBack(): void {
+  const webview = document.getElementById('minmax-webview') as any;
+  if (webview && webview.canGoBack()) {
+    webview.goBack();
+  }
+}
+
+/**
+ * 前进
+ */
+function goForward(): void {
+  const webview = document.getElementById('minmax-webview') as any;
+  if (webview && webview.canGoForward()) {
+    webview.goForward();
+  }
+}
+
+/**
+ * 刷新浏览器
+ */
+function refreshBrowser(): void {
+  const webview = document.getElementById('minmax-webview') as any;
+  if (webview) {
+    webview.reload();
+  }
+}
+
+/**
+ * 确认已登录
+ * 用户登录完成后调用此方法，标记登录状态并返回监控模式
+ */
+async function confirmLogin(): Promise<void> {
+  console.log('[MinMax App] 用户确认已登录');
+  setLoggedIn();
+  viewMode.value = 'monitor';
+  // 刷新数据
+  await refreshData();
+}
+
+/**
+ * 从页面提取使用量数据
+ * 参考 Chrome 扩展的 content script 逻辑
+ */
+function extractUsageFromPage(): number | null {
+  const pageText = document.body.innerText;
+  console.log('[MinMax App] 开始查找使用量数据...');
+  console.log('[MinMax App] 页面文本长度:', pageText.length);
+
+  // 方法1: 匹配 "XX% 已使用" 格式
+  const percentUsedMatch = pageText.match(/(\d+(?:\.\d+)?)\s*%\s*(?:已使用|已消耗|已用)/);
+  if (percentUsedMatch) {
+    const percent = parseFloat(percentUsedMatch[1]);
+    if (percent > 0 && percent <= 100) {
+      console.log('[MinMax App] 方法1-百分比已使用格式匹配成功:', percent + '%');
+      return percent;
+    }
+  }
+
+  // 方法2: 匹配 "已使用 X/Y" 格式
+  const usageMatch = pageText.match(/已使用\s*(\d+(?:\.\d+)?)\s*[\/｜|]\s*(\d+(?:\.\d+)?)/);
+  if (usageMatch) {
+    const used = parseFloat(usageMatch[1]);
+    const total = parseFloat(usageMatch[2]);
+    if (total > 0 && used <= total && used > 0) {
+      const percent = (used / total) * 100;
+      console.log('[MinMax App] 方法2-已使用格式匹配成功:', percent + '%', `(已使用 ${used}/${total})`);
+      return percent;
+    }
+  }
+
+  console.log('[MinMax App] 所有方法都未匹配到使用量数据');
+  return null;
 }
 
 /**
@@ -372,7 +595,7 @@ async function testNotification(): Promise<void> {
 }
 
 /**
- * 从后端获取使用量数据
+ * 从后端获取使用量数据（模拟数据）
  */
 async function fetchUsageFromBackend(): Promise<number> {
   console.log('[MinMax App] 从后端获取使用量数据');
@@ -450,6 +673,15 @@ onMounted(async () => {
   // 加载设置
   await loadSettingsFromBackend();
 
+  // 检查登录状态
+  if (!checkIsLoggedIn()) {
+    console.log('[MinMax App] 未登录，导航到登录页面');
+    // 未登录时导航到登录页面
+    targetUrl.value = MINMAX_LOGIN_URL;
+    viewMode.value = 'browser';
+    return;
+  }
+
   // 刷新数据
   await refreshData();
 });
@@ -462,6 +694,9 @@ onMounted(async () => {
   max-width: 400px;
   margin: 0 auto;
   padding: 16px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
 }
 
 /* 头部样式 */
@@ -470,6 +705,7 @@ onMounted(async () => {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 16px;
+  flex-shrink: 0;
 }
 
 .app-header h1 {
@@ -485,7 +721,8 @@ onMounted(async () => {
 }
 
 .lang-toggle,
-.settings-toggle {
+.settings-toggle,
+.mode-toggle {
   background: none;
   border: none;
   cursor: pointer;
@@ -495,6 +732,19 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   justify-content: center;
+  font-size: 16px;
+}
+
+.mode-toggle {
+  font-size: 18px;
+}
+
+.mode-toggle.monitor {
+  background: #e3f2fd;
+}
+
+.mode-toggle.browser {
+  background: #fff3e0;
 }
 
 .settings-toggle {
@@ -512,7 +762,8 @@ onMounted(async () => {
 }
 
 .settings-toggle:hover,
-.lang-toggle:hover {
+.lang-toggle:hover,
+.mode-toggle:hover {
   background: #f0f0f0;
 }
 
@@ -581,6 +832,21 @@ onMounted(async () => {
 
 .cancel-btn:hover {
   background: #eeeeee;
+}
+
+/* 主内容区 */
+.app-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* 监控模式 */
+.monitor-mode {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
 }
 
 /* 加载状态 */
@@ -686,6 +952,146 @@ onMounted(async () => {
   color: #c62828;
 }
 
+.action-buttons {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.refresh-btn {
+  flex: 1;
+  padding: 8px 16px;
+  background: #2196f3;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.refresh-btn:hover {
+  background: #1976d2;
+}
+
+.browser-btn {
+  flex: 1;
+  padding: 8px 16px;
+  background: #ff9800;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.browser-btn:hover {
+  background: #f57c00;
+}
+
+/* 登录提示 */
+.login-prompt {
+  text-align: center;
+  padding: 20px;
+  color: #666;
+}
+
+.login-prompt p {
+  margin-bottom: 12px;
+}
+
+/* 浏览器模式 */
+.browser-mode {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  margin: 0 -16px;
+}
+
+.browser-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px;
+  background: #f5f5f5;
+  border-bottom: 1px solid #ddd;
+}
+
+.nav-btn {
+  padding: 6px 10px;
+  background: white;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.nav-btn:hover:not(:disabled) {
+  background: #e0e0e0;
+}
+
+.nav-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.url-input {
+  flex: 1;
+  padding: 6px 8px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 12px;
+  background: white;
+}
+
+/* WebView 样式 */
+.webview {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  border: none;
+}
+
+/* 登录确认浮层 */
+.login-confirm-overlay {
+  position: absolute;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.login-prompt-text {
+  margin: 0;
+  padding: 6px 12px;
+  background: rgba(0, 0, 0, 0.7);
+  color: white;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.confirm-login-btn {
+  padding: 12px 24px;
+  background: #4caf50;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: bold;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  transition: all 0.2s;
+}
+
+.confirm-login-btn:hover {
+  background: #43a047;
+  transform: scale(1.05);
+}
+
 .test-btn {
   width: 100%;
   padding: 8px;
@@ -699,19 +1105,5 @@ onMounted(async () => {
 
 .test-btn:hover {
   background: #f57c00;
-}
-
-.refresh-btn {
-  padding: 8px 16px;
-  background: #2196f3;
-  color: white;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 14px;
-}
-
-.refresh-btn:hover {
-  background: #1976d2;
 }
 </style>
