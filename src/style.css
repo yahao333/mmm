@@ -14,7 +14,7 @@ html, body {
   font-size: 14px;
   line-height: 1.5;
   color: #333;
-  background-color: #fff;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -22,6 +22,10 @@ html, body {
 #app {
   height: 100%;
   width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
 }
 
 /* 链接样式 */
@@ -41,39 +45,42 @@ button {
   cursor: pointer;
   border: none;
   outline: none;
+  transition: all 0.2s ease;
 }
 
 /* 输入框基础样式 */
 input {
   font-family: inherit;
   font-size: inherit;
-  border: 1px solid #ddd;
-  border-radius: 4px;
-  padding: 8px 12px;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  padding: 10px 14px;
   outline: none;
-  transition: border-color 0.2s;
+  transition: all 0.2s ease;
+  background: rgba(255, 255, 255, 0.9);
 }
 
 input:focus {
-  border-color: #2196f3;
+  border-color: #667eea;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.2);
+  background: #fff;
 }
 
 /* 滚动条样式 */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #f1f1f1;
-  border-radius: 4px;
+  background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #c1c1c1;
-  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #a1a1a1;
+  background: rgba(0, 0, 0, 0.3);
 }

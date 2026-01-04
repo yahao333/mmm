@@ -1,12 +1,12 @@
 import { defineConfig } from 'vite';
-import vue from '@vitejs/plugin-vue';
+import react from '@vitejs/plugin-react';
 import { resolve } from 'path';
 
 // Vite 配置文件
-// 用于配置 Vue 3 构建选项和 Tauri 集成
+// 用于配置 React 构建选项和 Tauri 集成
 export default defineConfig({
-  // Vue 插件配置
-  plugins: [vue()],
+  // React 插件配置
+  plugins: [react()],
 
   // 基础路径配置
   base: './',

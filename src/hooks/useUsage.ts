@@ -1,4 +1,4 @@
-import { ref } from 'vue';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 
 /**
@@ -7,11 +7,24 @@ import { invoke } from '@tauri-apps/api/core';
  */
 
 // 设置数据接口
-interface Settings {
+export interface Settings {
   warningThreshold: number;
   checkInterval: number;
   wechatWorkWebhookUrl: string;
   language: string;
+}
+
+// 返回值接口
+export interface UseUsageReturn {
+  loading: boolean;
+  error: string | null;
+  usagePercent: number | null;
+  notificationStatus: string;
+  lastUpdateTime: Date | null;
+  isOverThreshold: boolean;
+  setUsage: (percent: number) => Promise<void>;
+  paste: () => Promise<boolean>;
+  resetWarningState: () => void;
 }
 
 /**
@@ -110,36 +123,44 @@ async function sendWarningNotification(percent: number, threshold: number): Prom
 }
 
 /**
- * 使用使用量数据管理
+ * 使用使用量数据管理 Hook
  * @param settings 当前设置
- * @param onNotify 通知回调函数（可选）
  * @returns 使用量相关状态和方法
  */
-export function useUsage(settings: Settings, onNotify?: (success: boolean, message: string) => void) {
-  // 响应式状态
-  const loading = ref(false);                        // 加载状态
-  const error = ref<string | null>(null);            // 错误信息
-  const usagePercent = ref<number | null>(null);     // 使用量百分比
-  const notificationStatus = ref('');                // 通知状态提示
-  const lastUpdateTime = ref<Date | null>(null);     // 最后更新时间
+export function useUsage(settings: Settings): UseUsageReturn {
+  // 状态
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [usagePercent, setUsagePercent] = useState<number | null>(null);
+  const [notificationStatus, setNotificationStatus] = useState('');
+  const [lastUpdateTime, setLastUpdateTime] = useState<Date | null>(null);
 
-  // 记录是否已发送过预警（避免重复发送）
-  const hasSentWarning = ref(false);
+  // 使用 ref 存储不会触发重渲染的状态
+  const hasSentWarning = useRef(false);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // 清理 timeout
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
+    };
+  }, []);
 
   /**
    * 处理使用量数据
    * 设置使用量并检查是否需要发送预警
-   * @param percent 使用量百分比
    */
-  async function handleUsageData(percent: number): Promise<void> {
-    usagePercent.value = percent;
-    lastUpdateTime.value = new Date();
+  const handleUsageData = useCallback(async (percent: number) => {
+    setUsagePercent(percent);
+    setLastUpdateTime(new Date());
 
     console.log('[useUsage] 获取到使用量:', percent + '%');
 
     // 检查是否需要发送预警通知
     const shouldNotify = percent >= settings.warningThreshold;
-    const isFirstWarning = shouldNotify && !hasSentWarning.value;
+    const isFirstWarning = shouldNotify && !hasSentWarning.current;
 
     // 如果使用量超过阈值且是第一次（或者已恢复后再次超过），发送预警通知
     if (isFirstWarning) {
@@ -151,42 +172,35 @@ export function useUsage(settings: Settings, onNotify?: (success: boolean, messa
       const success = await sendWarningNotification(percent, settings.warningThreshold);
 
       if (success) {
-        hasSentWarning.value = true;
+        hasSentWarning.current = true;
         const statusMessage = `⚠️ 预警已发送 (${percent.toFixed(1)}%)`;
-        notificationStatus.value = statusMessage;
-
-        // 回调通知
-        if (onNotify) {
-          onNotify(true, statusMessage);
-        }
+        setNotificationStatus(statusMessage);
 
         // 3秒后清除状态提示
-        setTimeout(() => {
-          notificationStatus.value = '';
+        if (timeoutRef.current) {
+          clearTimeout(timeoutRef.current);
+        }
+        timeoutRef.current = setTimeout(() => {
+          setNotificationStatus('');
         }, 3000);
       } else {
-        const errorMessage = '预警发送失败';
-        notificationStatus.value = errorMessage;
-
-        if (onNotify) {
-          onNotify(false, errorMessage);
-        }
+        setNotificationStatus('预警发送失败');
       }
     } else if (!shouldNotify) {
       // 使用量恢复到阈值以下，重置预警状态
-      if (hasSentWarning.value) {
+      if (hasSentWarning.current) {
         console.log('[useUsage] 使用量已恢复到阈值以下，重置预警状态');
-        hasSentWarning.value = false;
+        hasSentWarning.current = false;
       }
     }
-  }
+  }, [settings.warningThreshold]);
 
   /**
    * 从剪贴板获取使用量数据
    */
-  async function paste(): Promise<boolean> {
-    loading.value = true;
-    error.value = null;
+  const paste = useCallback(async () => {
+    setLoading(true);
+    setError(null);
 
     try {
       const percent = await pasteFromClipboard();
@@ -194,61 +208,56 @@ export function useUsage(settings: Settings, onNotify?: (success: boolean, messa
         await handleUsageData(percent);
         return true;
       } else {
-        error.value = '未能从剪贴板提取使用量数据';
+        setError('未能从剪贴板提取使用量数据');
         console.log('[useUsage] 未能从剪贴板提取使用量数据');
         return false;
       }
     } catch (err) {
-      error.value = err instanceof Error ? err.message : '读取剪贴板失败';
+      const errorMsg = err instanceof Error ? err.message : '读取剪贴板失败';
+      setError(errorMsg);
       console.error('[useUsage] 粘贴失败:', err);
       return false;
     } finally {
-      loading.value = false;
+      setLoading(false);
     }
-  }
+  }, [handleUsageData]);
 
   /**
    * 设置使用量（手动输入）
-   * @param percent 使用量百分比
    */
-  async function setUsage(percent: number): Promise<void> {
+  const setUsage = useCallback(async (percent: number) => {
     // 校验范围
     if (percent < 0 || percent > 100) {
-      error.value = '使用量必须在 0-100% 之间';
+      setError('使用量必须在 0-100% 之间');
       return;
     }
 
-    error.value = null;
+    setError(null);
     await handleUsageData(percent);
-  }
+  }, [handleUsageData]);
 
   /**
    * 检查使用量是否超过阈值
    */
-  function isOverThreshold(): boolean {
-    return usagePercent.value !== null && usagePercent.value >= settings.warningThreshold;
-  }
+  const isOverThreshold = usagePercent !== null && usagePercent >= settings.warningThreshold;
 
   /**
    * 重置预警状态（用于测试或手动清除）
    */
-  function resetWarningState(): void {
-    hasSentWarning.value = false;
-    notificationStatus.value = '';
-  }
+  const resetWarningState = useCallback(() => {
+    hasSentWarning.current = false;
+    setNotificationStatus('');
+  }, []);
 
   return {
-    // 响应式状态
     loading,
     error,
     usagePercent,
     notificationStatus,
     lastUpdateTime,
-    // 计算属性
     isOverThreshold,
-    // 方法
-    paste,
     setUsage,
+    paste,
     resetWarningState,
   };
 }

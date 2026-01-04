@@ -51,14 +51,42 @@ const MINMAX_INIT_SCRIPT: &str = r#"
     return null;
   }
 
-  function emitUsage(percent) {
-    try {
-      const tauri = window.__TAURI__;
-      if (!tauri || !tauri.event || !tauri.event.emit) {
-        console.warn(TAG, 'Tauri event API 不可用');
-        return false;
+  function getTauriEventEmitter() {
+    // 尝试多种方式获取 Tauri 事件发射器
+    if (typeof window !== 'undefined' && window.__TAURI__) {
+      // 方式 1: window.__TAURI__.event (Tauri 2.x 标准方式)
+      if (window.__TAURI__.event && typeof window.__TAURI__.event.emit === 'function') {
+        return window.__TAURI__.event;
       }
-      tauri.event.emit('minmax-usage', { percent: percent });
+    }
+    // 方式 2: Tauri 内部 API
+    if (typeof window !== 'undefined' && window.__TAURI_INTERNALS__) {
+      if (typeof window.__TAURI_INTERNALS__.emit === 'function') {
+        return { emit: window.__TAURI_INTERNALS__.emit };
+      }
+    }
+    return null;
+  }
+
+  function emitUsage(percent) {
+    const eventEmitter = getTauriEventEmitter();
+    if (!eventEmitter) {
+      console.warn(TAG, 'Tauri event API 不可用，尝试延迟发送');
+      // 延迟尝试发送
+      setTimeout(() => {
+        const emitter = getTauriEventEmitter();
+        if (emitter) {
+          emitter.emit('minmax-usage', { percent: percent });
+          console.log(TAG, '延迟上报使用量:', percent + '%');
+        } else {
+          console.warn(TAG, '延迟发送仍失败，Tauri API 不可用');
+        }
+      }, 1000);
+      return false;
+    }
+
+    try {
+      eventEmitter.emit('minmax-usage', { percent: percent });
       console.log(TAG, '上报使用量:', percent + '%');
       return true;
     } catch (e) {
@@ -74,7 +102,13 @@ const MINMAX_INIT_SCRIPT: &str = r#"
     const text = document.body.innerText || '';
     const percent = extractUsageFromText(text);
 
-    if (!percent) return;
+    if (!percent) {
+      // 调试：打印页面内容片段
+      if (collectCount <= 3) {
+        console.log(TAG, '检测 #' + collectCount + ': 未找到使用量数据，页面文本片段:', text.substring(0, 200));
+      }
+      return;
+    }
 
     const rounded = Math.round(percent * 10) / 10;
 
