@@ -8,6 +8,7 @@
     "dev:watch": "node scripts/watch.js",
     "build": "wxt build",
     "zip": "wxt zip",
+    "build:zip": "wxt zip",
     "prepare": "wxt prepare"
   },
   "devDependencies": {
