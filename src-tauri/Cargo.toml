@@ -1,0 +1,40 @@
+[package]
+name = "minmax-helper"
+version = "0.1.0"
+description = "MinMax 账号使用量监控工具"
+authors = ["minmax-helper"]
+license = "MIT"
+repository = ""
+edition = "2021"
+rust-version = "1.77.2"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+name = "app_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.5.3", features = [] }
+
+[dependencies]
+# Tauri 核心依赖
+tauri = { version = "2.9.5", features = [] }
+
+# 序列化/反序列化
+serde_json = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+tokio = { version = "1.0", features = ["full"] }
+rand = "0.8"
+
+# HTTP 客户端（用于企业微信通知）
+reqwest = { version = "0.11", features = ["json"] }
+
+# 日志
+log = "0.4"
+tauri-plugin-log = "2"
+
+[features]
+# 自定义调试功能
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]

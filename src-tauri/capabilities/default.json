@@ -1,0 +1,12 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "MinMax Helper 默认权限配置",
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "core:default",
+    "log:default"
+  ]
+}
