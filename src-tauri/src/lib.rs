@@ -2,6 +2,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use tauri;
 use tauri::Manager;
+use tauri::Emitter;
 use tokio::fs;
 use log::{info, warn, error};
 
@@ -155,12 +156,16 @@ const MINMAX_INIT_SCRIPT: &str = r#"
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct AppConfig {
   /// 预警阈值（百分比）
+  #[serde(rename = "warningThreshold")]
   pub warning_threshold: f64,
   /// 检查间隔（分钟）
+  #[serde(rename = "checkInterval")]
   pub check_interval: i32,
   /// 企业微信 Webhook URL
+  #[serde(rename = "wechatWorkWebhookUrl")]
   pub wechat_work_webhook_url: String,
   /// 语言设置
+  #[serde(rename = "language")]
   pub language: String,
 }
 
@@ -578,57 +583,104 @@ async fn fetch_usage_from_page() -> Result<serde_json::Value, String> {
 /// 保留此命令以保持 API 兼容，返回错误提示
 #[tauri::command]
 async fn get_usage() -> Result<f64, String> {
-  info!("获取使用量数据 - 前端处理");
+  error!("[定时任务] get_usage 被调用 - 此函数已废弃，返回模拟数据");
 
   // 使用模拟数据（实际由前端通过 JS 注入获取）
   let usage = rand::random::<f64>() % 100.0;
-  info!("使用量数据（模拟）: {:.1}%", usage);
+  warn!("[定时任务] 使用量数据（模拟）: {:.1}%", usage);
 
   Ok(usage)
 }
 
+/// 触发前端获取使用量
+/// Rust 后端定时任务调用此命令，通知前端打开 MinMax 页面并获取使用量
+#[tauri::command]
+async fn trigger_fetch_usage(app: tauri::AppHandle) -> Result<(), String> {
+  info!("[trigger_fetch_usage] 开始执行");
+
+  // 检查 MinMax 窗口是否存在
+  let window = app.get_webview_window(MINMAX_WINDOW_LABEL);
+  if let Some(ref win) = window {
+    info!("[trigger_fetch_usage] MinMax 窗口已存在，尝试显示和聚焦");
+
+    // 使用 spawn_blocking 在后台线程执行显示和聚焦操作，避免阻塞
+    let win_clone = win.clone();
+    tokio::spawn(async move {
+      let _ = win_clone.show();
+      let _ = win_clone.set_focus();
+    });
+
+    // 向前端发送事件，触发使用量获取（不等待结果）
+    info!("[trigger_fetch_usage] 发送 trigger-fetch-usage 事件...");
+    let emit_result = win.emit("trigger-fetch-usage", {});
+    info!("[trigger_fetch_usage] 事件发送结果: {:?}", emit_result);
+  } else {
+    info!("[trigger_fetch_usage] MinMax 窗口不存在，需要创建新窗口");
+
+    // 创建新窗口（使用 spawn 在后台执行）
+    let app_clone = app.clone();
+    tokio::spawn(async move {
+      let url = MINMAX_USAGE_URL
+        .parse()
+        .expect("MinMax URL 解析失败");
+
+      match tauri::WebviewWindowBuilder::new(&app_clone, MINMAX_WINDOW_LABEL, tauri::WebviewUrl::External(url))
+        .title("MinMax")
+        .inner_size(1100.0, 800.0)
+        .resizable(true)
+        .center()
+        .initialization_script(MINMAX_INIT_SCRIPT)
+        .build()
+      {
+        Ok(_) => info!("[trigger_fetch_usage] MinMax 窗口已在后台创建成功"),
+        Err(e) => error!("[trigger_fetch_usage] MinMax 窗口创建失败: {}", e),
+      }
+    });
+  }
+
+  info!("[trigger_fetch_usage] 快速返回（不等待窗口操作完成）");
+  Ok(())
+}
+
 /// 定时检查使用量
 /// 内部函数，由定时器调用
-async fn scheduled_check() {
-  info!("============= 开始定时检查 =============");
+async fn scheduled_check(app: &tauri::AppHandle) {
+  info!("[scheduled_check] ========== 开始定时检查 ==========");
 
   // 获取当前配置
   let config = match get_settings().await {
     Ok(c) => c,
     Err(e) => {
-      error!("获取配置失败: {}", e);
+      error!("[scheduled_check] 获取配置失败: {}", e);
       return;
     }
   };
 
-  // 获取使用量
-  let usage = match get_usage().await {
-    Ok(u) => u,
-    Err(e) => {
-      error!("获取使用量失败: {}", e);
-      // 发送错误通知
-      let _ = send_error_notification(format!("获取使用量失败: {}", e), config).await;
-      return;
+  info!("[scheduled_check] 配置信息: 阈值={:.1}%, 间隔={}分钟", config.warning_threshold, config.check_interval);
+
+  // 触发前端获取使用量（使用超时避免长时间阻塞）
+  info!("[scheduled_check] 开始调用 trigger_fetch_usage（超时 5 秒）...");
+
+  // 使用 tokio::time::timeout 避免长时间阻塞
+  let result = tokio::time::timeout(
+    tokio::time::Duration::from_secs(5),
+    trigger_fetch_usage(app.clone())
+  ).await;
+
+  match result {
+    Ok(Ok(())) => {
+      info!("[scheduled_check] trigger_fetch_usage 调用成功");
     }
-  };
-
-  info!("获取到使用量: {:.1}%", usage);
-
-  // 检查是否超过阈值
-  if usage >= config.warning_threshold {
-    info!("使用量超过阈值 ({:.1}%)，发送预警通知", config.warning_threshold);
-
-    // 发送预警通知
-    let result = send_warning_notification(usage, config.warning_threshold).await;
-
-    if let Err(e) = result {
-      error!("发送预警通知失败: {}", e);
+    Ok(Err(e)) => {
+      error!("[scheduled_check] trigger_fetch_usage 调用失败: {}", e);
+      let _ = send_error_notification(format!("定时任务触发失败: {}", e), config).await;
     }
-  } else {
-    info!("使用量正常 ({:.1}%)", usage);
+    Err(_) => {
+      warn!("[scheduled_check] trigger_fetch_usage 超时（5秒），跳过");
+    }
   }
 
-  info!("============= 定时检查完成 =============");
+  info!("[scheduled_check] ========== 定时检查完成 ==========");
 }
 
 /// 应用状态
@@ -669,6 +721,7 @@ pub fn run() {
       read_clipboard,
       fetch_usage_from_page,
       get_usage,
+      trigger_fetch_usage,
     ])
     .manage(app_state.clone())
     .setup(|app| {
@@ -694,13 +747,15 @@ pub fn run() {
 
 /// 启动定时器
 /// 根据配置启动定时检查任务
-async fn start_timer(_app: &tauri::AppHandle, app_state: &Arc<AppState>) {
+async fn start_timer(app: &tauri::AppHandle, app_state: &Arc<AppState>) {
   let mut running = app_state.timer_running.lock().await;
 
   if *running {
-    info!("定时器已在运行中，跳过启动");
+    info!("[定时任务] 定时器已在运行中，跳过启动");
     return;
   }
+
+  info!("[定时任务] 正在启动定时器...");
 
   // 获取当前配置
   let config = {
@@ -709,34 +764,48 @@ async fn start_timer(_app: &tauri::AppHandle, app_state: &Arc<AppState>) {
   };
 
   let interval_minutes = config.check_interval;
-  info!("启动定时器，检查间隔: {} 分钟", interval_minutes);
+  info!("[定时任务] 启动定时器，检查间隔: {} 分钟", interval_minutes);
 
   *running = true;
   let app_state_clone = app_state.clone();
+  let app_handle_clone = app.app_handle().clone();
 
   // 启动定时任务
   tokio::spawn(async move {
+    info!("[定时任务] tokio 任务已启动");
+
     let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(
       (interval_minutes as u64) * 60,
     ));
 
-    // 立即执行一次检查
-    scheduled_check().await;
+    // 首次执行
+    info!("[定时任务] 执行首次检查...");
+    scheduled_check(&app_handle_clone).await;
+    info!("[定时任务] 首次检查完成");
 
+    let mut tick_count = 0;
     loop {
+      tick_count += 1;
+      info!("[定时任务] 等待第 {} 个 tick...", tick_count);
+
       interval.tick().await;
+      info!("[定时任务] 第 {} 个 tick 到达", tick_count);
 
       // 检查定时器是否停止
       {
         let running = app_state_clone.timer_running.lock().await;
         if !*running {
-          info!("定时器已停止");
+          info!("[定时任务] 定时器已停止");
           break;
         }
       }
 
       // 执行检查
-      scheduled_check().await;
+      info!("[定时任务] 周期触发检查 (#{})...", tick_count);
+      scheduled_check(&app_handle_clone).await;
+      info!("[定时任务] 周期检查 #{} 完成", tick_count);
     }
   });
+
+  info!("[定时任务] start_timer 函数返回");
 }

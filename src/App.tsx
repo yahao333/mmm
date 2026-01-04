@@ -19,8 +19,11 @@ import { t, getLang, setLang, Lang } from './i18n';
 // 语言类型
 type Language = Lang;
 
-// 设置数据接口
-interface AppSettings extends Settings {
+// 设置数据接口（完整定义，确保与后端 AppConfig 对应）
+interface AppSettings {
+  warningThreshold: number;
+  checkInterval: number;
+  wechatWorkWebhookUrl: string;
   language: Language;
 }
 
@@ -39,6 +42,12 @@ function App() {
     wechatWorkWebhookUrl: '',
     language: 'zh',
   });
+
+  // 使用 ref 存储最新的输入值，避免闭包问题
+  const settingsRef = useRef(settings);
+  useEffect(() => {
+    settingsRef.current = settings;
+  }, [settings]);
 
   // 使用 hook 管理使用量数据
   const {
@@ -111,9 +120,19 @@ function App() {
 
     try {
       const result = await invoke<AppSettings>('get_settings');
-      setSettings(prev => ({ ...prev, ...result }));
-      setCurrentLang(result.language as Language || 'zh');
-      console.log('[App] 设置加载完成:', result);
+      console.log('[App] 后端返回配置:', result);
+
+      // 将后端返回的 snake_case 转换为前端使用的 camelCase
+      const convertedSettings = {
+        warningThreshold: result.warningThreshold,
+        checkInterval: result.checkInterval,
+        wechatWorkWebhookUrl: result.wechatWorkWebhookUrl,
+        language: result.language,
+      };
+
+      setSettings(prev => ({ ...prev, ...convertedSettings }));
+      setCurrentLang(convertedSettings.language as Language || 'zh');
+      console.log('[App] 设置加载完成:', convertedSettings);
     } catch (err) {
       console.error('[App] 加载设置失败:', err);
       const storedSettings = localStorage.getItem('minmax_settings');
@@ -126,33 +145,24 @@ function App() {
   }, []);
 
   /**
-   * 保存设置到后端
-   */
-  const saveSettingsToBackend = useCallback(async () => {
-    console.log('[App] 保存设置到后端:', settings);
-
-    try {
-      await invoke('save_settings', { settings });
-      console.log('[App] 设置已保存');
-      await loadSettingsFromBackend();
-      console.log('[App] 设置已验证:', settings);
-    } catch (err) {
-      console.error('[App] 保存设置失败:', err);
-      localStorage.setItem('minmax_settings', JSON.stringify(settings));
-    }
-  }, [settings, loadSettingsFromBackend]);
-
-  /**
    * 切换语言
    */
   const toggleLanguage = useCallback(async () => {
     const newLang = currentLang === 'zh' ? 'en' : 'zh';
     setCurrentLang(newLang);
     setLang(newLang);
-    setSettings(prev => ({ ...prev, language: newLang }));
+
+    const settingsToSave = { ...settings, language: newLang };
     console.log('[App] 语言已切换:', newLang);
-    await saveSettingsToBackend();
-  }, [currentLang, saveSettingsToBackend]);
+
+    try {
+      await invoke('save_settings', { settings: settingsToSave });
+      console.log('[App] 语言设置已保存');
+      setSettings(prev => ({ ...prev, language: newLang }));
+    } catch (err) {
+      console.error('[App] 保存语言设置失败:', err);
+    }
+  }, [currentLang, settings]);
 
   /**
    * 从页面获取使用量
@@ -179,30 +189,63 @@ function App() {
    */
   const saveSettings = useCallback(async () => {
     console.log('[App] 保存设置');
+    console.log('[App] settingsRef.current:', JSON.stringify(settingsRef.current));
 
-    if (!Number.isFinite(settings.checkInterval) || settings.checkInterval <= 0) {
+    // 使用 ref 获取最新的输入值，避免闭包问题
+    const currentSettings = settingsRef.current;
+    const currentThreshold = currentSettings.warningThreshold;
+    const currentInterval = currentSettings.checkInterval;
+
+    console.log('[App] 当前输入值 - 阈值:', currentThreshold, '间隔:', currentInterval);
+
+    if (!Number.isFinite(currentInterval) || currentInterval <= 0) {
       alert(t('invalidInterval'));
       return;
     }
 
-    let sanitizedThreshold = settings.warningThreshold;
-    if (!Number.isFinite(settings.warningThreshold)) {
+    // 计算修正后的阈值
+    let sanitizedThreshold = currentThreshold;
+    if (!Number.isFinite(currentThreshold)) {
       sanitizedThreshold = 90;
     } else {
-      sanitizedThreshold = Math.min(100, Math.max(0, settings.warningThreshold));
+      sanitizedThreshold = Math.min(100, Math.max(0, currentThreshold));
     }
 
-    if (sanitizedThreshold !== settings.warningThreshold) {
-      console.warn('[App] 预警阈值超出范围，已自动修正:', {
-        before: settings.warningThreshold,
-        after: sanitizedThreshold,
-      });
-      setSettings(prev => ({ ...prev, warningThreshold: sanitizedThreshold }));
+    console.log('[App] 修正后的阈值:', sanitizedThreshold);
+
+    // 构造保存的配置对象
+    const settingsToSave = {
+      warningThreshold: sanitizedThreshold,
+      checkInterval: currentInterval,
+      wechatWorkWebhookUrl: currentSettings.wechatWorkWebhookUrl,
+      language: currentSettings.language,
+    };
+
+    console.log('[App] 准备保存设置:', JSON.stringify(settingsToSave));
+
+    try {
+      await invoke('save_settings', { settings: settingsToSave });
+      console.log('[App] 设置已保存到后端');
+
+      // 保存成功后更新本地 state（确保一致性）
+      setSettings(prev => ({
+        ...prev,
+        warningThreshold: sanitizedThreshold,
+        checkInterval: currentInterval,
+      }));
+      console.log('[App] 本地 state 已更新');
+
+      // 重新加载配置以确保一致性
+      await loadSettingsFromBackend();
+      console.log('[App] 配置已验证');
+    } catch (err) {
+      console.error('[App] 保存设置失败:', err);
+      // 后端保存失败时，回退到 localStorage
+      localStorage.setItem('minmax_settings', JSON.stringify(settingsToSave));
     }
 
-    await saveSettingsToBackend();
     setShowSettings(false);
-  }, [settings, saveSettingsToBackend]);
+  }, [loadSettingsFromBackend]);
 
   /**
    * 取消设置修改
@@ -231,12 +274,16 @@ function App() {
    */
   const handleWarningThresholdChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const value = parseFloat(e.target.value);
-    setSettings(prev => ({ ...prev, warningThreshold: isNaN(value) ? 0 : value }));
+    const newValue = isNaN(value) ? 0 : value;
+    console.log('[App] 阈值输入变化:', value, '->', newValue);
+    setSettings(prev => ({ ...prev, warningThreshold: newValue }));
   }, []);
 
   const handleCheckIntervalChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const value = parseFloat(e.target.value);
-    setSettings(prev => ({ ...prev, checkInterval: isNaN(value) ? 0 : value }));
+    const newValue = isNaN(value) ? 0 : value;
+    console.log('[App] 间隔输入变化:', value, '->', newValue);
+    setSettings(prev => ({ ...prev, checkInterval: newValue }));
   }, []);
 
   const handleWebhookUrlChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {

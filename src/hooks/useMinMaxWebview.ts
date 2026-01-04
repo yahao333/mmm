@@ -62,6 +62,45 @@ export function useMinMaxWebview(): UseMinMaxWebviewReturn {
   // 使用 ref 存储 listener 注册状态
   const hasListener = useRef(false);
 
+  // 使用 ref 存储回调函数引用，避免循环依赖
+  const openMinMaxWindowRef = useRef<(() => Promise<void>) | null>(null);
+
+  /**
+   * 在 Tauri 窗口中打开 MinMax 页面
+   */
+  const openMinMaxWindowInTauri = useCallback(async () => {
+    console.log('[useMinMaxWebview] 通过后端创建/显示 MinMax 窗口:', MINMAX_USAGE_URL);
+    await invoke('open_minmax_window');
+    setIsWebviewOpen(true);
+  }, []);
+
+  /**
+   * 在浏览器中打开 MinMax 页面
+   */
+  const openMinMaxInBrowser = useCallback(() => {
+    console.log('[useMinMaxWebview] 非 Tauri 环境，使用浏览器打开:', MINMAX_USAGE_URL);
+    window.open(MINMAX_USAGE_URL, '_blank');
+    setIsWebviewOpen(true);
+    setWebviewHint('已打开 MinMax 页面：登录后会自动同步使用量（无需复制），稍等几秒再回来看');
+  }, []);
+
+  /**
+   * 打开 MinMax 页面（自动选择环境）
+   * 使用函数声明避免循环依赖问题
+   */
+  // eslint-disable-next-line func-names
+  const openMinMaxWindow = useCallback(async function () {
+    if (!isTauriRuntime()) {
+      openMinMaxInBrowser();
+      return;
+    }
+
+    await openMinMaxWindowInTauri();
+  }, [openMinMaxInBrowser, openMinMaxWindowInTauri]);
+
+  // 存储 openMinMaxWindow 引用供事件监听器使用
+  openMinMaxWindowRef.current = openMinMaxWindow;
+
   /**
    * 注册使用量事件监听器
    */
@@ -69,9 +108,10 @@ export function useMinMaxWebview(): UseMinMaxWebviewReturn {
     if (hasListener.current) return;
     if (!isTauriRuntime()) return;
 
-    console.log('[useMinMaxWebview] 注册 minmax-usage 事件监听');
+    console.log('[useMinMaxWebview] 注册事件监听器');
     hasListener.current = true;
 
+    // 监听 minmax-usage 事件（使用量数据）
     await listen<{ percent?: number }>('minmax-usage', (event) => {
       console.log('[useMinMaxWebview] 收到 minmax-usage 事件, payload:', JSON.stringify(event.payload));
       const percent = event.payload?.percent;
@@ -87,40 +127,32 @@ export function useMinMaxWebview(): UseMinMaxWebviewReturn {
         console.warn('[useMinMaxWebview] 收到无效使用量事件 payload:', event.payload);
       }
     });
+
+    // 监听 trigger-fetch-usage 事件（定时任务触发获取）
+    console.log('[useMinMaxWebview] 注册 trigger-fetch-usage 事件监听');
+    await listen('trigger-fetch-usage', async () => {
+      console.log('[useMinMaxWebview] 收到定时任务触发信号，尝试获取使用量...');
+      try {
+        // 使用 ref 获取最新的 openMinMaxWindow
+        const openFn = openMinMaxWindowRef.current;
+        if (openFn) {
+          await openFn();
+          setWebviewHint('定时任务：正在获取使用量，请稍候...');
+          console.log('[useMinMaxWebview] 定时任务触发成功');
+        } else {
+          console.warn('[useMinMaxWebview] openMinMaxWindowRef 还未初始化');
+        }
+      } catch (err) {
+        console.error('[useMinMaxWebview] 定时任务触发失败:', err);
+      }
+    });
   }, []);
 
-  /**
-   * 在 Tauri 窗口中打开 MinMax 页面
-   */
-  const openMinMaxWindowInTauri = useCallback(async () => {
-    await ensureUsageListener();
-
-    console.log('[useMinMaxWebview] 通过后端创建/显示 MinMax 窗口:', MINMAX_USAGE_URL);
-    await invoke('open_minmax_window');
-    setIsWebviewOpen(true);
+  // 组件挂载时注册事件监听器
+  useEffect(() => {
+    console.log('[useMinMaxWebview] 组件挂载，尝试注册事件监听器');
+    ensureUsageListener();
   }, [ensureUsageListener]);
-
-  /**
-   * 在浏览器中打开 MinMax 页面
-   */
-  const openMinMaxInBrowser = useCallback(() => {
-    console.log('[useMinMaxWebview] 非 Tauri 环境，使用浏览器打开:', MINMAX_USAGE_URL);
-    window.open(MINMAX_USAGE_URL, '_blank');
-    setIsWebviewOpen(true);
-    setWebviewHint('已打开 MinMax 页面：登录后会自动同步使用量（无需复制），稍等几秒再回来看');
-  }, []);
-
-  /**
-   * 打开 MinMax 页面（自动选择环境）
-   */
-  const openMinMaxWindow = useCallback(async () => {
-    if (!isTauriRuntime()) {
-      openMinMaxInBrowser();
-      return;
-    }
-
-    await openMinMaxWindowInTauri();
-  }, [openMinMaxInBrowser, openMinMaxWindowInTauri]);
 
   /**
    * 通过 Rust 后端执行脚本获取使用量
