@@ -3,15 +3,6 @@
     <header class="app-header">
       <h1>{{ t('title') }}</h1>
       <div class="header-actions">
-        <!-- 模式切换按钮 -->
-        <button
-          class="mode-toggle"
-          :class="viewMode"
-          @click="toggleViewMode"
-          :title="viewMode === 'monitor' ? t('openBrowser') : t('backToMonitor')"
-        >
-          {{ viewMode === 'monitor' ? '🌐' : '📊' }}
-        </button>
         <button class="lang-toggle" @click="toggleLanguage" :title="t('toggleLanguage')">
           {{ currentLang === 'en' ? '中' : 'EN' }}
         </button>
@@ -75,28 +66,17 @@
 
       <!-- 监控面板 -->
       <MonitorPanel
-        v-else-if="viewMode === 'monitor'"
+        v-else
         :usage-percent="usagePercent"
         :loading="loading"
         :fetching="fetching"
         :error="displayError"
-        :notification-status="notificationStatus"
-        :is-over-threshold="isOverThreshold"
+        :notification-status="displayNotificationStatus"
+        :is-over-threshold="isOverThreshold()"
         :threshold="settings.warningThreshold"
         :t="t"
         :last-update-time="lastUpdateTime"
-        @refresh="refreshData"
         @fetch-usage="handleFetchUsage"
-        @open-browser="openExternalBrowser"
-        @paste="handlePaste"
-        @manual-set="handleManualSet"
-      />
-
-      <!-- 浏览器面板 -->
-      <BrowserPanel
-        v-else
-        :t="t"
-        @confirm-login="confirmLogin"
       />
     </main>
   </div>
@@ -108,10 +88,8 @@ import { invoke } from '@tauri-apps/api/core';
 
 // 导入组件
 import MonitorPanel from './components/MonitorPanel.vue';
-import BrowserPanel from './components/BrowserPanel.vue';
 
 // 导入 hook
-import { useMinMaxAuth } from './hooks/useMinMaxAuth';
 import { useUsage } from './hooks/useUsage';
 import { useMinMaxWebview } from './hooks/useMinMaxWebview';
 
@@ -211,11 +189,6 @@ const messages: Record<string, Record<string, string>> = {
 type Lang = 'zh' | 'en';
 
 /**
- * 视图模式
- */
-type ViewMode = 'monitor' | 'browser';
-
-/**
  * 设置数据接口
  */
 interface Settings {
@@ -225,13 +198,9 @@ interface Settings {
   language: Lang;
 }
 
-// 使用 hook 管理登录状态
-const { isLoggedIn, login, logout } = useMinMaxAuth();
-
 // 响应式状态
 const showSettings = ref(false);    // 是否显示设置面板
 const currentLang = ref<Lang>('zh'); // 当前语言
-const viewMode = ref<ViewMode>('monitor'); // 视图模式
 
 // 设置数据
 const settings = reactive<Settings>({
@@ -249,7 +218,6 @@ const {
   notificationStatus,
   isOverThreshold,
   lastUpdateTime,
-  paste,
   setUsage,
 } = useUsage(settings);
 
@@ -257,22 +225,23 @@ const {
 const {
   webviewLoading: fetching,
   webviewError,
+  webviewHint,
+  autoUsagePercent,
   executeScriptAndFetch,
-  openInExternalBrowser,
 } = useMinMaxWebview();
 
 const displayError = computed(() => error.value || webviewError.value);
+const displayNotificationStatus = computed(() => webviewHint.value || notificationStatus.value);
 
-/**
- * 在应用内打开 MinMax 使用量页面
- */
-async function openExternalBrowser(): Promise<void> {
-  try {
-    await openInExternalBrowser();
-  } catch (err) {
-    console.error('[App] 打开 MinMax 窗口失败:', err);
-  }
-}
+watch(
+  autoUsagePercent,
+  async (percent) => {
+    if (percent === null) return;
+    console.log('[App] 收到自动使用量，更新到面板:', percent + '%');
+    await setUsage(percent);
+  },
+  { immediate: false }
+);
 
 /**
  * 获取翻译文本
@@ -293,37 +262,6 @@ async function toggleLanguage(): Promise<void> {
 }
 
 /**
- * 切换视图模式
- */
-async function toggleViewMode(): Promise<void> {
-  if (viewMode.value === 'monitor') {
-    viewMode.value = 'browser';
-    console.log('[App] 切换到登录引导');
-  } else {
-    viewMode.value = 'monitor';
-    console.log('[App] 切换到监控模式');
-  }
-}
-
-/**
- * 确认登录完成
- * 用户登录完成后调用此方法，标记登录状态并返回监控模式
- */
-async function confirmLogin(): Promise<void> {
-  console.log('[App] 用户确认已登录');
-  login();
-  viewMode.value = 'monitor';
-}
-
-/**
- * 处理粘贴使用量
- */
-async function handlePaste(): Promise<void> {
-  console.log('[App] 处理粘贴使用量');
-  await paste();
-}
-
-/**
  * 从页面获取使用量
  */
 async function handleFetchUsage(): Promise<void> {
@@ -337,16 +275,8 @@ async function handleFetchUsage(): Promise<void> {
     await setUsage(percent);
     console.log('[App] 通过页面脚本获取到使用量:', percent + '%');
   } else {
-    console.log('[App] 未自动获取到使用量，请使用“粘贴使用量”方式');
+    console.log('[App] 等待页面自动同步使用量（登录后几秒内会更新）');
   }
-}
-
-/**
- * 处理手动设置使用量
- */
-async function handleManualSet(value: number): Promise<void> {
-  console.log('[App] 手动设置使用量:', value);
-  await setUsage(value);
 }
 
 /**
@@ -448,13 +378,6 @@ async function testNotification(): Promise<void> {
   }
 }
 
-/**
- * 刷新数据（从剪贴板粘贴）
- */
-async function refreshData(): Promise<void> {
-  await paste();
-}
-
 // 监听设置变化，更新 useUsage hook 的配置
 watch(
   () => settings.warningThreshold,
@@ -470,15 +393,6 @@ onMounted(async () => {
 
   // 加载设置
   await loadSettingsFromBackend();
-
-  // 检查登录状态，决定显示哪个视图
-  if (!isLoggedIn.value) {
-    console.log('[App] 未登录，显示登录引导');
-    viewMode.value = 'browser';
-  } else {
-    // 已登录，提示用户粘贴数据
-    console.log('[App] 已登录，等待粘贴使用量数据');
-  }
 });
 </script>
 
@@ -516,8 +430,7 @@ onMounted(async () => {
 }
 
 .lang-toggle,
-.settings-toggle,
-.mode-toggle {
+.settings-toggle {
   background: none;
   border: none;
   cursor: pointer;
@@ -528,18 +441,6 @@ onMounted(async () => {
   align-items: center;
   justify-content: center;
   font-size: 16px;
-}
-
-.mode-toggle {
-  font-size: 18px;
-}
-
-.mode-toggle.monitor {
-  background: #e3f2fd;
-}
-
-.mode-toggle.browser {
-  background: #fff3e0;
 }
 
 .settings-toggle {
@@ -557,8 +458,7 @@ onMounted(async () => {
 }
 
 .settings-toggle:hover,
-.lang-toggle:hover,
-.mode-toggle:hover {
+.lang-toggle:hover {
   background: #f0f0f0;
 }
 

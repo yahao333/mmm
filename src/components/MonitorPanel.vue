@@ -52,9 +52,6 @@
         <button @click="$emit('fetch-usage')" class="fetch-btn" :disabled="fetching">
           {{ fetching ? t('fetching') : '🔄 ' + t('fetchUsage') }}
         </button>
-        <button @click="$emit('open-browser')" class="browser-btn">
-          🌐 {{ t('openBrowser') }}
-        </button>
       </div>
     </div>
 
@@ -66,37 +63,6 @@
       <button @click="$emit('fetch-usage')" class="fetch-btn-large" :disabled="fetching">
         {{ fetching ? t('fetching') : '🔄 ' + t('fetchUsage') }}
       </button>
-
-      <!-- 备用方案 -->
-      <div class="backup-actions">
-        <p class="backup-title">{{ t('orUseBackup') }}</p>
-
-        <!-- 手动输入使用量 -->
-        <div class="manual-input">
-          <input
-            type="number"
-            v-model.number="manualInputValue"
-            :placeholder="t('manualInputPlaceholder')"
-            min="0"
-            max="100"
-            class="manual-input-field"
-          />
-          <button
-            @click="handleManualInput"
-            class="manual-input-btn"
-            :disabled="!manualInputValue"
-          >
-            {{ t('setUsage') }}
-          </button>
-        </div>
-
-        <!-- 粘贴按钮 -->
-        <button @click="$emit('paste')" class="paste-btn-large">
-          📋 {{ t('pasteUsage') }}
-        </button>
-
-        <p class="paste-hint">{{ t('pasteHint') }}</p>
-      </div>
     </div>
   </div>
 </template>
@@ -106,8 +72,6 @@
  * 监控面板组件
  * 显示当前使用量信息和状态
  */
-
-import { ref } from 'vue';
 
 interface Props {
   // 使用量数据
@@ -130,10 +94,7 @@ interface Props {
   lastUpdateTime: Date | null;
 }
 
-const props = defineProps<Props>();
-
-// 手动输入的值
-const manualInputValue = ref<number | null>(null);
+defineProps<Props>();
 
 /**
  * 格式化时间显示
@@ -142,24 +103,9 @@ function formatTime(date: Date): string {
   return date.toLocaleTimeString();
 }
 
-/**
- * 处理手动输入
- */
-function handleManualInput(): void {
-  if (manualInputValue.value !== null) {
-    // 发送手动输入的值到父组件
-    emit('manual-set', manualInputValue.value);
-    manualInputValue.value = null;
-  }
-}
-
 // 事件定义
-const emit = defineEmits<{
-  refresh: [];
+defineEmits<{
   'fetch-usage': [];    // 从页面获取使用量
-  'open-browser': [];   // 触发外部浏览器打开
-  paste: [];            // 粘贴使用量
-  'manual-set': [value: number]; // 手动设置使用量
 }>();
 </script>
 
@@ -202,21 +148,6 @@ const emit = defineEmits<{
   background: #ffebee;
   border-radius: 4px;
   font-size: 14px;
-}
-
-.link-btn {
-  padding: 8px 16px;
-  background: #2196f3;
-  color: white;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 14px;
-  text-align: center;
-}
-
-.link-btn:hover {
-  background: #1976d2;
 }
 
 /* 使用量信息 */

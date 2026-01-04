@@ -1,8 +1,154 @@
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tauri;
+use tauri::Manager;
 use tokio::fs;
 use log::{info, warn, error};
+
+const MINMAX_USAGE_URL: &str = "https://platform.minimaxi.com/user-center/payment/coding-plan";
+const MINMAX_WINDOW_LABEL: &str = "minmax";
+
+const MINMAX_INIT_SCRIPT: &str = r#"
+(function () {
+  const TAG = '[MinMax Inject]';
+  let lastSentPercent = null;
+  let scheduled = false;
+  let lastMissingTauriLogTs = 0;
+  let lastCollectLogTs = 0;
+
+  function debugSnapshot(extra) {
+    const tauri = window.__TAURI__;
+    const internals = window.__TAURI_INTERNALS__;
+    return Object.assign({
+      href: (typeof location !== 'undefined' && location.href) ? location.href : null,
+      origin: (typeof location !== 'undefined' && location.origin) ? location.origin : null,
+      readyState: (typeof document !== 'undefined' && document.readyState) ? document.readyState : null,
+      hasWindowTauri: !!tauri,
+      hasWindowTauriInternals: typeof internals !== 'undefined',
+      tauriKeys: tauri ? Object.keys(tauri) : null,
+      eventKeys: (tauri && tauri.event) ? Object.keys(tauri.event) : null
+    }, extra || {});
+  }
+
+  function isValidPercent(p) {
+    return typeof p === 'number' && Number.isFinite(p) && p >= 0 && p <= 100;
+  }
+
+  function extractUsagePercentFromText(text) {
+    if (!text) return null;
+    const percentUsedMatch = text.match(/(\d+(?:\.\d+)?)\s*%\s*(?:已使用|已消耗|已用)/);
+    if (percentUsedMatch) {
+      const percent = parseFloat(percentUsedMatch[1]);
+      if (isValidPercent(percent)) return percent;
+    }
+
+    const usageMatch = text.match(/已使用\s*(\d+(?:\.\d+)?)\s*[\/｜|]\s*(\d+(?:\.\d+)?)/);
+    if (usageMatch) {
+      const used = parseFloat(usageMatch[1]);
+      const total = parseFloat(usageMatch[2]);
+      if (Number.isFinite(used) && Number.isFinite(total) && total > 0 && used <= total && used >= 0) {
+        const percent = (used / total) * 100;
+        if (isValidPercent(percent)) return percent;
+      }
+    }
+
+    return null;
+  }
+
+  function getTauriEventEmit() {
+    const tauri = window.__TAURI__;
+    const eventApi = tauri && tauri.event;
+    const emit = eventApi && eventApi.emit;
+    if (typeof emit === 'function') return emit.bind(eventApi);
+    return null;
+  }
+
+  function emitUsage(percent) {
+    try {
+      const emit = getTauriEventEmit();
+      if (!emit) {
+        const now = Date.now();
+        if (now - lastMissingTauriLogTs >= 3000) {
+          lastMissingTauriLogTs = now;
+          console.warn(TAG, 'Tauri event API 不可用，跳过上报', debugSnapshot({ percent }));
+        }
+        return false;
+      }
+
+      emit('minmax-usage', { percent: percent });
+      console.log(TAG, '已上报使用量:', percent + '%', debugSnapshot());
+      return true;
+    } catch (e) {
+      console.error(TAG, '上报使用量失败:', e, debugSnapshot({ percent }));
+      return false;
+    }
+  }
+
+  function tryCollectAndEmit() {
+    try {
+      if (!document || !document.body) return;
+      const text = document.body.innerText || '';
+      const percent = extractUsagePercentFromText(text);
+      if (!isValidPercent(percent)) return;
+
+      const rounded = Math.round(percent * 10) / 10;
+      const now = Date.now();
+      if (now - lastCollectLogTs >= 5000) {
+        lastCollectLogTs = now;
+        console.log(TAG, '已解析到使用量:', rounded + '%', debugSnapshot());
+      }
+
+      if (lastSentPercent !== null && Math.abs(rounded - lastSentPercent) < 0.1) return;
+
+      const ok = emitUsage(rounded);
+      if (ok) {
+        lastSentPercent = rounded;
+      }
+    } catch (e) {
+      console.error(TAG, '提取使用量失败:', e, debugSnapshot());
+    }
+  }
+
+  function scheduleCollect() {
+    if (scheduled) return;
+    scheduled = true;
+    setTimeout(function () {
+      scheduled = false;
+      tryCollectAndEmit();
+    }, 600);
+  }
+
+  function setup() {
+    console.log(TAG, '初始化完成，开始监听页面变化', debugSnapshot());
+
+    tryCollectAndEmit();
+
+    const observer = new MutationObserver(function () {
+      scheduleCollect();
+    });
+
+    observer.observe(document.documentElement || document.body, {
+      childList: true,
+      subtree: true,
+      characterData: true
+    });
+
+    setInterval(function () {
+      tryCollectAndEmit();
+    }, 2500);
+
+    window.addEventListener('focus', function () {
+      scheduleCollect();
+    });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', setup);
+  } else {
+    setup();
+  }
+})();
+"#;
 
 /// 应用配置数据结构
 /// 用于存储用户的设置选项
@@ -257,6 +403,39 @@ async fn open_url(url: String) -> Result<(), String> {
   }
 }
 
+#[tauri::command]
+async fn open_minmax_window(app: tauri::AppHandle) -> Result<(), String> {
+  info!("打开 MinMax 窗口");
+
+  if let Some(existing) = app.get_webview_window(MINMAX_WINDOW_LABEL) {
+    info!("MinMax 窗口已存在，尝试显示并聚焦");
+    if let Err(e) = existing.show() {
+      warn!("显示 MinMax 窗口失败: {}", e);
+    }
+    if let Err(e) = existing.set_focus() {
+      warn!("聚焦 MinMax 窗口失败: {}", e);
+    }
+    return Ok(());
+  }
+
+  let url = MINMAX_USAGE_URL
+    .parse()
+    .map_err(|e| format!("MinMax URL 解析失败: {}", e))?;
+
+  info!("创建 MinMax 窗口: {}", MINMAX_USAGE_URL);
+
+  tauri::WebviewWindowBuilder::new(&app, MINMAX_WINDOW_LABEL, tauri::WebviewUrl::External(url))
+    .title("MinMax")
+    .inner_size(1100.0, 800.0)
+    .resizable(true)
+    .center()
+    .initialization_script(MINMAX_INIT_SCRIPT)
+    .build()
+    .map_err(|e| format!("创建 MinMax 窗口失败: {}", e))?;
+
+  Ok(())
+}
+
 /// 读取剪贴板文本
 /// 使用系统命令读取剪贴板内容
 #[tauri::command]
@@ -417,6 +596,7 @@ pub fn run() {
       send_warning_notification,
       send_error_notification,
       open_url,
+      open_minmax_window,
       read_clipboard,
       fetch_usage_from_page,
       get_usage,

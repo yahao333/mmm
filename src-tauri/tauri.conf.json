@@ -10,6 +10,7 @@
     "beforeBuildCommand": "pnpm build"
   },
   "app": {
+    "withGlobalTauri": true,
     "windows": [
       {
         "title": "MinMax Helper",
@@ -34,6 +35,22 @@
             "core:window:allow-get-all-windows",
             "core:webview:allow-create-webview-window",
             "core:webview:allow-create-webview"
+          ]
+        },
+        {
+          "identifier": "minmax-remote",
+          "description": "仅允许 MinMax 远程页面上报使用量事件",
+          "windows": [
+            "minmax"
+          ],
+          "remote": {
+            "urls": [
+              "https://platform.minimaxi.com/*"
+            ]
+          },
+          "permissions": [
+            "core:event:default",
+            "core:event:allow-emit"
           ]
         }
       ]
