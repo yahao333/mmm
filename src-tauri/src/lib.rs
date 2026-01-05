@@ -16,37 +16,83 @@ const MINMAX_INIT_SCRIPT: &str = r#"
   let collectCount = 0;
 
   function isValidPercent(p) {
-    return typeof p === 'number' && Number.isFinite(p) && p > 0 && p <= 100;
+    return typeof p === 'number' && Number.isFinite(p) && p >= 0 && p <= 100;
   }
 
   function extractUsageFromText(text) {
     if (!text) return null;
 
-    // 策略：扫描所有 "XX%" 格式，选择最大的那个值
-    // MinMax 使用量通常接近 100%，所以选择最大值最合理
+    // 策略：扫描所有 "XX%" 格式，但需要验证是否与使用量相关
+    // 只选择合理范围内的值（0-100），并排除明显不是使用量的模式
     const matches = text.matchAll(/(\d+(?:\.\d+)?)\s*%/g);
-    let maxPercent = 0;
-    let maxContext = '';
+    let candidates = [];
 
     for (const m of matches) {
       const p = parseFloat(m[1]);
-      if (!isValidPercent(p)) continue;
+      // 严格的范围验证：0-100%
+      if (p < 0 || p > 100) continue;
 
       // 获取上下文
       const idx = m.index;
-      const start = Math.max(0, idx - 15);
-      const end = Math.min(text.length, idx + m[0].length + 15);
+      const start = Math.max(0, idx - 30);
+      const end = Math.min(text.length, idx + m[0].length + 30);
       const context = text.substring(start, end).replace(/\s+/g, ' ').trim();
 
-      if (p > maxPercent) {
-        maxPercent = p;
-        maxContext = context;
+      // 排除明显不是使用量的上下文
+      const excludePatterns = [
+        /优惠\d+%/,
+        /折扣\d+%/,
+        /赠送\d+%/,
+        /已用\d+%/,
+        /剩余\d+%/,
+        /可用\d+%/,
+        /已消耗\d+%/,
+        /进度[:：]?\s*\d+/,
+        /completed\s*\d+/i,
+        /progress\s*\d+/i,
+        /\d+\s*%\s*(?:已|剩余|完成|进行)/i,
+        /(?:已|剩余|完成|进行)\s*\d+\s*%/i,
+        // 排除单独出现的百分比（没有明确的使用量相关描述）
+        /^\s*\d+%\s*$/,
+        // 排除包含"总额"、"配额"、"限制"等词的
+        /总额[:：]?\s*\d+%/,
+        /配额[:：]?\s*\d+%/,
+        /限制[:：]?\s*\d+%/,
+        /总量[:：]?\s*\d+%/,
+        /总计[:：]?\s*\d+%/,
+      ];
+
+      // 如果上下文太短（少于 10 个字符），可能是孤立的百分比，排除
+      let isExcluded = context.length < 10;
+
+      // 检查排除模式
+      for (const pattern of excludePatterns) {
+        if (pattern.test(context)) {
+          isExcluded = true;
+          break;
+        }
+      }
+
+      if (!isExcluded) {
+        // 使用量通常不会太低（接近 0%）或太高（接近 100%），除非确实如此
+        // 但优先选择 10-99% 之间的值，因为这个范围最可能是使用量
+        const isLikelyUsage = p >= 10 && p <= 99;
+        candidates.push({ percent: p, context: context, priority: isLikelyUsage ? 2 : 1 });
       }
     }
 
-    if (maxPercent > 0) {
-      console.log(TAG, '选择最大值:', maxPercent + '%', '上下文:', maxContext);
-      return maxPercent;
+    // 排序：优先选择 10-99% 区间内的值，然后按数值降序
+    if (candidates.length > 0) {
+      candidates.sort((a, b) => {
+        if (a.priority !== b.priority) {
+          return b.priority - a.priority; // priority 2 > priority 1
+        }
+        return b.percent - a.percent; // 降序
+      });
+
+      const best = candidates[0];
+      console.log(TAG, '选择使用量候选值:', best.percent + '%', '上下文:', best.context, '优先级:', best.priority);
+      return best.percent;
     }
 
     return null;
@@ -329,6 +375,95 @@ async fn save_settings(settings: AppConfig) -> Result<(), String> {
     Err(e) => {
       error!("验证读取配置文件失败: {}", e);
     }
+  }
+
+  Ok(())
+}
+
+/// 恢复出厂设置
+/// 删除配置文件，后续读取会回退到默认配置
+#[tauri::command]
+async fn reset_settings() -> Result<AppConfig, String> {
+  let config_path = get_config_path();
+  info!("恢复出厂设置，准备删除配置文件: {:?}", config_path);
+
+  match fs::remove_file(&config_path).await {
+    Ok(_) => info!("配置文件已删除，恢复默认配置"),
+    Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+      info!("配置文件不存在，直接返回默认配置")
+    }
+    Err(e) => {
+      let error_msg = format!("删除配置文件失败: {}", e);
+      error!("{}", error_msg);
+      return Err(error_msg);
+    }
+  }
+
+  Ok(AppConfig::default())
+}
+
+/// 退出应用
+#[tauri::command]
+async fn exit_app(app: tauri::AppHandle) -> Result<(), String> {
+  // 在异步任务中调用退出，避免主线程阻塞问题
+  tauri::async_runtime::spawn(async move {
+    app.exit(0);
+  });
+  Ok(())
+}
+
+/// 清理前端与 MinMax WebView 的缓存与存储
+#[tauri::command]
+async fn clear_web_caches(app: tauri::AppHandle) -> Result<(), String> {
+  let clear_script = r#"
+    (async function() {
+      try {
+        try { localStorage && localStorage.clear && localStorage.clear(); } catch (_) {}
+        try { sessionStorage && sessionStorage.clear && sessionStorage.clear(); } catch (_) {}
+        try {
+          if (indexedDB && indexedDB.databases) {
+            const dbs = await indexedDB.databases();
+            for (const db of dbs) {
+              if (db && db.name) {
+                try { indexedDB.deleteDatabase(db.name); } catch (_) {}
+              }
+            }
+          }
+        } catch (_) {}
+        try {
+          if ('caches' in window) {
+            const keys = await caches.keys();
+            await Promise.all(keys.map(k => caches.delete(k)));
+          }
+        } catch (_) {}
+        try {
+          if ('serviceWorker' in navigator) {
+            const regs = await navigator.serviceWorker.getRegistrations();
+            await Promise.all(regs.map(r => r.unregister()));
+          }
+        } catch (_) {}
+        try {
+          const cookieStr = document.cookie || '';
+          const names = cookieStr.split(';').map(c => c.split('=')[0].trim()).filter(Boolean);
+          for (const name of names) {
+            try {
+              document.cookie = name + '=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/';
+            } catch (_) {}
+          }
+        } catch (_) {}
+        return 'ok';
+      } catch (e) {
+        return 'error:' + (e && e.message ? e.message : String(e));
+      }
+    })();
+  "#;
+
+  if let Some(main_win) = app.get_webview_window("main") {
+    let _ = main_win.eval(clear_script);
+  }
+
+  if let Some(minmax_win) = app.get_webview_window(MINMAX_WINDOW_LABEL) {
+    let _ = minmax_win.eval(clear_script);
   }
 
   Ok(())
@@ -910,6 +1045,9 @@ pub fn run() {
     .invoke_handler(tauri::generate_handler![
       get_settings,
       save_settings,
+      reset_settings,
+      clear_web_caches,
+      exit_app,
       get_config_path_debug,
       test_notification,
       send_warning_notification,

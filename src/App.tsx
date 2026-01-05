@@ -7,6 +7,7 @@ import './style.css';
 
 // 导入组件
 import { MonitorPanel } from './components/MonitorPanel';
+import { ConfirmModal } from './components/ConfirmModal';
 
 // 导入 hook
 import { useUsage, Settings } from './hooks/useUsage';
@@ -27,21 +28,25 @@ interface AppSettings {
   language: Language;
 }
 
+const DEFAULT_SETTINGS: AppSettings = {
+  warningThreshold: 90,
+  checkInterval: 30,
+  wechatWorkWebhookUrl: '',
+  language: 'zh',
+};
+
 /**
  * 主应用组件
  */
 function App() {
   // 是否显示设置面板
   const [showSettings, setShowSettings] = useState(false);
+  // 是否显示恢复出厂设置确认框
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
   // 当前语言
   const [currentLang, setCurrentLang] = useState<Language>('zh');
   // 设置数据
-  const [settings, setSettings] = useState<AppSettings>({
-    warningThreshold: 90,
-    checkInterval: 30,
-    wechatWorkWebhookUrl: '',
-    language: 'zh',
-  });
+  const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
 
   // 使用 ref 存储最新的输入值，避免闭包问题
   const settingsRef = useRef(settings);
@@ -280,6 +285,57 @@ function App() {
   }, [loadSettingsFromBackend]);
 
   /**
+   * 恢复出厂设置 - 点击按钮
+   */
+  const resetToFactorySettings = useCallback(() => {
+    setShowResetConfirm(true);
+  }, []);
+
+  /**
+   * 恢复出厂设置 - 确认执行
+   */
+  const handleConfirmReset = useCallback(async () => {
+    console.log('[App] 开始恢复出厂设置');
+
+    try {
+      localStorage.clear();
+    } catch (e) {
+      console.warn('[App] 清理 localStorage 失败:', e);
+    }
+
+    try {
+      await invoke('clear_web_caches');
+      console.log('[App] 已请求清理 WebView 缓存与存储');
+    } catch (e) {
+      console.warn('[App] 清理 WebView 缓存失败:', e);
+    }
+
+    try {
+      const backendSettings = await invoke<AppSettings>('reset_settings');
+      console.log('[App] 后端已重置配置，返回默认配置:', backendSettings);
+
+      setSettings(prev => ({ ...prev, ...backendSettings }));
+      setCurrentLang((backendSettings.language as Language) || 'zh');
+      setLang(((backendSettings.language as Language) || 'zh'));
+    } catch (err) {
+      console.error('[App] 调用后端重置失败，回退到前端默认值:', err);
+      setSettings(DEFAULT_SETTINGS);
+      setCurrentLang('zh');
+      setLang('zh');
+    }
+
+    setShowSettings(false);
+    setShowResetConfirm(false);
+    alert(t('resetSuccess'));
+    try {
+      await invoke('exit_app');
+    } catch (e) {
+      console.error('[App] 退出应用失败，回退到刷新:', e);
+      setTimeout(() => window.location.reload(), 150);
+    }
+  }, []);
+
+  /**
    * 测试系统通知
    */
   const testNotification = useCallback(async () => {
@@ -404,6 +460,15 @@ function App() {
               </button>
             </div>
 
+            <div className="flex flex-col gap-2">
+              <button
+                onClick={resetToFactorySettings}
+                className="w-full px-5 py-3 bg-gradient-to-r from-red-500 to-orange-500 text-white rounded-xl font-medium text-[14px] cursor-pointer transition-all duration-200 shadow-[0_4px_15px_rgba(239,68,68,0.25)] hover:shadow-[0_6px_20px_rgba(239,68,68,0.35)] hover:-translate-y-0.5"
+              >
+                {t('resetSettings')}
+              </button>
+            </div>
+
             <div className="flex gap-3 mt-2">
               <button
                 onClick={saveSettings}
@@ -436,6 +501,17 @@ function App() {
           />
         )}
       </main>
+
+      {/* 确认对话框 */}
+      <ConfirmModal
+        isOpen={showResetConfirm}
+        onClose={() => setShowResetConfirm(false)}
+        onConfirm={handleConfirmReset}
+        title={t('resetSettings')}
+        message={t('resetSettingsConfirm')}
+        confirmText={t('reset')}
+        cancelText={t('cancel')}
+      />
     </div>
   );
 }
