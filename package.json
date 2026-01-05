@@ -1,6 +1,6 @@
 {
   "name": "minmax-helper",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "description": "MiniMax 账号使用量监控工具",
   "type": "module",
   "scripts": {
