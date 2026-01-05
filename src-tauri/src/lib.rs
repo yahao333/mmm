@@ -545,10 +545,12 @@ async fn send_wechat_work_notification(
   info!("准备发送企业微信通知");
 
   // 构建企业微信消息格式（Markdown 格式）
+  // 企业微信支持独立的 title 字段用于显示消息标题
   let message = serde_json::json!({
     "msgtype": "markdown",
     "markdown": {
-      "content": format!("**{}\n\n{}\n\n---\n*来自 MinMax 使用量监控*", title, body)
+      "content": format!("{}\n\n---\n*来自 MiniMax 使用量监控*", body),
+      "title": title
     }
   });
 
@@ -632,7 +634,8 @@ async fn test_wechat_notification(webhook_url: String) -> Result<(), String> {
   let message = serde_json::json!({
     "msgtype": "markdown",
     "markdown": {
-      "content": "**MinMax 使用量监控测试通知**\n\n这是一条测试消息，用于验证企业微信机器人配置是否正确。\n\n---\n*来自 MiniMax 使用量监控*"
+      "content": "这是一条测试消息，用于验证企业微信机器人配置是否正确。\n\n---\n*来自 MiniMax 使用量监控*",
+      "title": "MiniMax 通知测试"
     }
   });
 
