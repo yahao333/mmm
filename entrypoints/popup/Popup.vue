@@ -46,7 +46,7 @@
           {{ getErrorMessage(error) }}
         </div>
         <button 
-          v-if="error === '请在 MinMax 页面打开扩展' || error === 'Please open extension on MinMax page'"
+          v-if="error === '请在 MiniMax 页面打开扩展' || error === 'Please open extension on MiniMax page'"
           @click="openMinMaxPage" 
           class="link-btn"
         >
@@ -80,7 +80,7 @@ import { ref, onMounted, computed } from 'vue';
 // 定义语言资源
 const messages = {
   zh: {
-    title: 'MinMax 使用量监控',
+    title: 'MiniMax 使用量监控',
     settings: '设置',
     warningThreshold: '预警阈值 (%)',
     checkInterval: '后台检查间隔 (分钟)',
@@ -92,22 +92,22 @@ const messages = {
     normalMsg: '✓ 使用量正常',
     refresh: '刷新数据',
     settingsTitle: '设置',
-    goToPage: '前往 MinMax 页面',
+    goToPage: '前往 MiniMax 页面',
     invalidInterval: '后台检查间隔必须大于 0 分钟',
     testNotification: '测试系统通知',
     notificationSent: '通知已发送',
     wechatWorkWebhookUrl: '企业微信 Webhook URL',
     wechatWorkWebhookUrlPlaceholder: 'https://qyapi.weixin.qq.com/... (可选)',
     // 错误信息映射
-    '请在 MinMax 页面打开扩展': '请在 MinMax 页面打开扩展',
+    '请在 MiniMax 页面打开扩展': '请在 MiniMax 页面打开扩展',
     '未能在页面中找到使用量数据，请确认是否在正确的页面上': '未能在页面中找到使用量数据，请确认是否在正确的页面上',
     '获取数据失败': '获取数据失败',
-    'Please open extension on MinMax page': '请在 MinMax 页面打开扩展',
+    'Please open extension on MiniMax page': '请在 MiniMax 页面打开扩展',
     'Usage data not found on page': '未能在页面中找到使用量数据',
     'Failed to fetch data': '获取数据失败'
   },
   en: {
-    title: 'MinMax Usage Monitor',
+    title: 'MiniMax Usage Monitor',
     settings: 'Settings',
     warningThreshold: 'Warning Threshold (%)',
     checkInterval: 'Check Interval (min)',
@@ -119,17 +119,17 @@ const messages = {
     normalMsg: '✓ Usage is normal',
     refresh: 'Refresh Data',
     settingsTitle: 'Settings',
-    goToPage: 'Go to MinMax Page',
+    goToPage: 'Go to MiniMax Page',
     invalidInterval: 'Check interval must be greater than 0 minutes',
     testNotification: 'Test Notification',
     notificationSent: 'Notification Sent',
     wechatWorkWebhookUrl: 'WeChat Work Webhook URL',
     wechatWorkWebhookUrlPlaceholder: 'https://qyapi.weixin.qq.com/... (optional)',
     // Error mapping
-    '请在 MinMax 页面打开扩展': 'Please open extension on MinMax page',
+    '请在 MiniMax 页面打开扩展': 'Please open extension on MiniMax page',
     '未能在页面中找到使用量数据，请确认是否在正确的页面上': 'Usage data not found on page',
     '获取数据失败': 'Failed to fetch data',
-    'Please open extension on MinMax page': 'Please open extension on MinMax page',
+    'Please open extension on MiniMax page': 'Please open extension on MiniMax page',
     'Usage data not found on page': 'Usage data not found on page',
     'Failed to fetch data': 'Failed to fetch data'
   }
@@ -174,7 +174,7 @@ async function toggleLanguage() {
 }
 
 /**
- * 打开 MinMax 页面
+ * 打开 MiniMax 页面
  */
 function openMinMaxPage() {
   chrome.tabs.create({ url: 'https://platform.minimaxi.com/user-center/payment/coding-plan' });
@@ -218,7 +218,7 @@ async function saveSettings() {
   const sanitizedInterval = checkInterval.value;
 
   if (sanitizedThreshold !== threshold.value) {
-    console.warn('[MinMax Popup] 预警阈值超出范围，已自动修正:', { before: threshold.value, after: sanitizedThreshold });
+    console.warn('[MiniMax Popup] 预警阈值超出范围，已自动修正:', { before: threshold.value, after: sanitizedThreshold });
     threshold.value = sanitizedThreshold;
   }
 
@@ -265,20 +265,20 @@ async function getCurrentTab(): Promise<chrome.tabs.Tab> {
 }
 
 /**
- * 从页面获取 MinMax 使用量数据
+ * 从页面获取 MiniMax 使用量数据
  * 通过 content script 注入脚本来获取页面数据
  */
 async function fetchUsageData(): Promise<number> {
   // 获取当前标签页
   const tab = await getCurrentTab();
 
-  // 检查是否是 MinMax 页面
+  // 检查是否是 MiniMax 页面
   if (!tab.url?.includes('minimaxi.com')) {
-    throw new Error('请在 MinMax 页面打开扩展');
+    throw new Error('请在 MiniMax 页面打开扩展');
   }
 
   // 调试日志：记录当前页面 URL
-  console.log('[MinMax Popup] 当前页面 URL:', tab.url);
+  console.log('[MiniMax Popup] 当前页面 URL:', tab.url);
 
   // 执行脚本获取使用量数据
   const results = await chrome.scripting.executeScript({
@@ -289,7 +289,7 @@ async function fetchUsageData(): Promise<number> {
       const usageText = document.body.innerText;
 
       // 调试日志：记录页面内容（截取前500字符）
-      console.log('[MinMax Popup] 页面内容预览:', usageText.substring(0, 500));
+      console.log('[MiniMax Popup] 页面内容预览:', usageText.substring(0, 500));
 
       // 尝试匹配使用量百分比模式
       // 匹配格式如: "80%", "85.5%", "90%" 等
@@ -297,7 +297,7 @@ async function fetchUsageData(): Promise<number> {
 
       if (percentMatch) {
         const percent = parseFloat(percentMatch[1]);
-        console.log('[MinMax Popup] 匹配到使用量百分比:', percent + '%');
+        console.log('[MiniMax Popup] 匹配到使用量百分比:', percent + '%');
         return percent;
       }
 
@@ -308,11 +308,11 @@ async function fetchUsageData(): Promise<number> {
         const used = parseFloat(usageMatch[1]);
         const total = parseFloat(usageMatch[2]);
         const percent = (used / total) * 100;
-        console.log('[MinMax Popup] 计算使用量百分比:', percent + '%', `(已使用 ${used}/${total})`);
+        console.log('[MiniMax Popup] 计算使用量百分比:', percent + '%', `(已使用 ${used}/${total})`);
         return percent;
       }
 
-      console.log('[MinMax Popup] 未找到使用量数据');
+      console.log('[MiniMax Popup] 未找到使用量数据');
       return null;
     },
   });
@@ -331,7 +331,7 @@ async function fetchUsageData(): Promise<number> {
  */
 async function sendWarningNotification(percent: number): Promise<void> {
   // 调试日志：记录预警触发
-  console.log('[MinMax Popup] 触发预警通知，使用量:', percent + '%');
+  console.log('[MiniMax Popup] 触发预警通知，使用量:', percent + '%');
 
   // 发送消息给 background 脚本，由 background 发送通知
   await chrome.runtime.sendMessage({
@@ -354,10 +354,10 @@ async function refreshData(): Promise<void> {
     usagePercent.value = percent;
 
     // 调试日志：记录获取到的使用量
-    console.log('[MinMax Popup] 获取到使用量:', percent + '%');
+  console.log('[MiniMax Popup] 获取到使用量:', percent + '%');
 
     // 如果使用量超过阈值，发送预警通知
-    console.log('[MinMax Popup] 预警检查: percent=', percent, 'threshold.value=', threshold.value, 'percent >= threshold.value:', percent >= threshold.value);
+  console.log('[MiniMax Popup] 预警检查: percent=', percent, 'threshold.value=', threshold.value, 'percent >= threshold.value:', percent >= threshold.value);
     if (percent >= threshold.value) {
       await sendWarningNotification(percent);
       // 显示通知状态提示
@@ -368,7 +368,7 @@ async function refreshData(): Promise<void> {
     }
   } catch (err) {
     error.value = err instanceof Error ? err.message : '获取数据失败';
-    console.error('[MinMax Popup] 获取使用量失败:', err);
+    console.error('[MiniMax Popup] 获取使用量失败:', err);
   } finally {
     loading.value = false;
   }
@@ -377,7 +377,7 @@ async function refreshData(): Promise<void> {
 // 组件挂载时自动获取数据
 onMounted(async () => {
   await loadSettings();
-  console.log('[MinMax Popup] 组件已挂载，开始获取数据');
+  console.log('[MiniMax Popup] 组件已挂载，开始获取数据');
   refreshData();
 });
 </script>

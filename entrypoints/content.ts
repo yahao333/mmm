@@ -1,5 +1,5 @@
 // Content Script - 内容脚本
-// 在 MinMax 页面上运行，用于获取使用量数据
+// 在 MiniMax 页面上运行，用于获取使用量数据
 
 /**
  * 查找使用量百分比
@@ -8,8 +8,8 @@
 function findUsagePercent(): number | null {
   // 获取页面所有文本内容
   const pageText = document.body.innerText;
-  console.log('[MinMax Content] 开始查找使用量数据...');
-  console.log('[MinMax Content] 页面文本长度:', pageText.length);
+  console.log('[MiniMax Content] 开始查找使用量数据...');
+  console.log('[MiniMax Content] 页面文本长度:', pageText.length);
 
   // 方法1: 匹配百分比格式（数字后跟百分号）
   // 页面显示格式：18%、85.5% 等
@@ -18,7 +18,7 @@ function findUsagePercent(): number | null {
   if (percentUsedMatch) {
     const percent = parseFloat(percentUsedMatch[1]);
     if (percent > 0 && percent <= 100) {
-      console.log('[MinMax Content] 方法1-百分比已使用格式匹配成功:', percent + '%');
+      console.log('[MiniMax Content] 方法1-百分比已使用格式匹配成功:', percent + '%');
       return percent;
     }
   }
@@ -30,22 +30,22 @@ function findUsagePercent(): number | null {
     const total = parseFloat(usageMatch[2]);
     if (total > 0 && used <= total && used > 0) {
       const percent = (used / total) * 100;
-      console.log('[MinMax Content] 方法2-已使用格式匹配成功:', percent + '%', `(已使用 ${used}/${total})`);
+      console.log('[MiniMax Content] 方法2-已使用格式匹配成功:', percent + '%', `(已使用 ${used}/${total})`);
       return percent;
     }
   }
 
-  console.log('[MinMax Content] 所有方法都未匹配到使用量数据');
+  console.log('[MiniMax Content] 所有方法都未匹配到使用量数据');
   return null;
 }
 
 // 主入口函数
 function main(): void {
-  console.log('[MinMax Content] 内容脚本已加载');
+  console.log('[MiniMax Content] 内容脚本已加载');
 
   // 监听来自 popup 的消息
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    console.log('[MinMax Content] 收到消息:', message);
+    console.log('[MiniMax Content] 收到消息:', message);
 
     if (message.action === 'ping') {
       // ping/pong 健康检查
@@ -56,7 +56,7 @@ function main(): void {
     if (message.action === 'getUsage') {
       // 获取当前页面使用量
       const usage = findUsagePercent();
-      console.log('[MinMax Content] 返回使用量数据:', usage);
+      console.log('[MiniMax Content] 返回使用量数据:', usage);
 
       sendResponse({
         success: usage !== null,

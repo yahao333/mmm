@@ -11,7 +11,7 @@ const MINMAX_WINDOW_LABEL: &str = "minmax";
 
 const MINMAX_INIT_SCRIPT: &str = r#"
 (function () {
-  const TAG = '[MinMax Inject]';
+  const TAG = '[MiniMax Inject]';
   let lastSentPercent = null;
   let collectCount = 0;
 
@@ -412,7 +412,7 @@ async fn exit_app(app: tauri::AppHandle) -> Result<(), String> {
   Ok(())
 }
 
-/// 清理前端与 MinMax WebView 的缓存与存储
+/// 清理前端与 MiniMax WebView 的缓存与存储
 #[tauri::command]
 async fn clear_web_caches(app: tauri::AppHandle) -> Result<(), String> {
   let clear_script = r#"
@@ -595,7 +595,7 @@ async fn send_warning_notification(
 ) -> Result<(), String> {
   info!("发送预警通知，使用量: {}%, 阈值: {}%", usage, threshold);
 
-  let title = "MinMax 使用量预警";
+  let title = "MiniMax 使用量预警";
   let body = format!("当前使用量已达到 {:.1}%，请注意配额使用情况！", usage);
 
   // 发送系统通知
@@ -619,7 +619,7 @@ async fn test_notification() -> Result<(), String> {
   info!("发送测试通知");
 
   // 发送系统通知
-  let _ = send_system_notification("MinMax Helper", "测试通知发送成功！").await;
+  let _ = send_system_notification("MiniMax Helper", "测试通知发送成功！").await;
 
   Ok(())
 }
@@ -679,7 +679,7 @@ async fn send_error_notification(
 ) -> Result<(), String> {
   error!("发送错误通知: {}", error);
 
-  let title = "MinMax 监控异常";
+  let title = "MiniMax 监控异常";
   let body = format!("检查使用量时发生错误: {}", error);
 
   // 发送系统通知
@@ -736,28 +736,28 @@ async fn open_url(url: String) -> Result<(), String> {
 
 #[tauri::command]
 async fn open_minmax_window(app: tauri::AppHandle) -> Result<(), String> {
-  info!("打开 MinMax 窗口（用户手动操作，显示窗口）");
+  info!("打开 MiniMax 窗口（用户手动操作，显示窗口）");
 
   if let Some(existing) = app.get_webview_window(MINMAX_WINDOW_LABEL) {
-    info!("MinMax 窗口已存在，显示并聚焦");
+    info!("MiniMax 窗口已存在，显示并聚焦");
     // 显示窗口并添加到任务栏
     if let Err(e) = existing.show() {
-      warn!("显示 MinMax 窗口失败: {}", e);
+      warn!("显示 MiniMax 窗口失败: {}", e);
     }
     if let Err(e) = existing.set_focus() {
-      warn!("聚焦 MinMax 窗口失败: {}", e);
+      warn!("聚焦 MiniMax 窗口失败: {}", e);
     }
     return Ok(());
   }
 
   let url = MINMAX_USAGE_URL
     .parse()
-    .map_err(|e| format!("MinMax URL 解析失败: {}", e))?;
+    .map_err(|e| format!("MiniMax URL 解析失败: {}", e))?;
 
-  info!("创建 MinMax 窗口: {}", MINMAX_USAGE_URL);
+  info!("创建 MiniMax 窗口: {}", MINMAX_USAGE_URL);
 
   tauri::WebviewWindowBuilder::new(&app, MINMAX_WINDOW_LABEL, tauri::WebviewUrl::External(url))
-    .title("MinMax")
+    .title("MiniMax")
     .inner_size(1100.0, 800.0)
     .resizable(true)
     .center()
@@ -766,7 +766,7 @@ async fn open_minmax_window(app: tauri::AppHandle) -> Result<(), String> {
     .visible(true)
     .skip_taskbar(false)
     .build()
-    .map_err(|e| format!("创建 MinMax 窗口失败: {}", e))?;
+    .map_err(|e| format!("创建 MiniMax 窗口失败: {}", e))?;
 
   Ok(())
 }
@@ -822,12 +822,12 @@ async fn read_clipboard() -> Result<String, String> {
 }
 
 /// 从页面获取使用量数据
-/// 创建临时的 webview 窗口加载 MinMax 页面，然后执行 JavaScript 提取使用量
+/// 创建临时的 webview 窗口加载 MiniMax 页面，然后执行 JavaScript 提取使用量
 #[tauri::command]
 async fn fetch_usage_from_page() -> Result<serde_json::Value, String> {
   info!("从页面获取使用量数据");
 
-  // MinMax 使用量页面 URL
+  // MiniMax 使用量页面 URL
   let url = "https://platform.minimaxi.com/user-center/payment/coding-plan";
   info!("目标 URL: {}", url);
 
@@ -864,7 +864,7 @@ fn do_trigger_fetch_usage(app: &tauri::AppHandle) {
   let emit_result = app.emit("trigger-fetch-usage", {});
   info!("[do_trigger_fetch_usage] 广播事件到主窗口: {:?}", emit_result);
 
-  // 在 MinMax 窗口中直接执行数据获取逻辑
+  // 在 MiniMax 窗口中直接执行数据获取逻辑
   let window = app.get_webview_window(MINMAX_WINDOW_LABEL);
   if let Some(win) = window {
     // 直接执行 JavaScript 获取数据并发送事件
@@ -874,7 +874,7 @@ fn do_trigger_fetch_usage(app: &tauri::AppHandle) {
     // 3. 发送事件到主窗口
     let script = r#"
       (function() {
-        const TAG = '[MinMax Trigger]';
+        const TAG = '[MiniMax Trigger]';
         const MAX_WAIT_MS = 10000;  // 最多等待 10 秒
         const CHECK_INTERVAL_MS = 500;  // 每 500ms 检查一次
 
@@ -1030,15 +1030,15 @@ fn do_trigger_fetch_usage(app: &tauri::AppHandle) {
       }
     }
   } else {
-    warn!("[do_trigger_fetch_usage] MinMax 窗口不存在");
-    let _ = app.emit("minmax-usage", serde_json::json!({ "error": "MinMax 窗口不存在" }));
+    warn!("[do_trigger_fetch_usage] MiniMax 窗口不存在");
+    let _ = app.emit("minmax-usage", serde_json::json!({ "error": "MiniMax 窗口不存在" }));
   }
 
   info!("[do_trigger_fetch_usage] 执行完成");
 }
 
 /// 触发前端获取使用量
-/// Rust 后端定时任务调用此命令，通知前端打开 MinMax 页面并获取使用量
+/// Rust 后端定时任务调用此命令，通知前端打开 MiniMax 页面并获取使用量
 #[tauri::command]
 async fn trigger_fetch_usage(app: tauri::AppHandle) -> Result<(), String> {
   do_trigger_fetch_usage(&app);
@@ -1110,17 +1110,17 @@ pub fn run() {
     ])
     .manage(app_state.clone())
     .setup(move |app| {
-      // 静默创建 MinMax 窗口（后台加载，不显示，不显示在任务栏）
+      // 静默创建 MiniMax 窗口（后台加载，不显示，不显示在任务栏）
       let app_handle = app.handle().clone();
       tauri::async_runtime::spawn(async move {
         // 检查窗口是否已存在
         if app_handle.get_webview_window(MINMAX_WINDOW_LABEL).is_none() {
           let url = MINMAX_USAGE_URL
             .parse()
-            .expect("MinMax URL 解析失败");
+            .expect("MiniMax URL 解析失败");
 
           match tauri::WebviewWindowBuilder::new(&app_handle, MINMAX_WINDOW_LABEL, tauri::WebviewUrl::External(url))
-            .title("MinMax")
+            .title("MiniMax")
             .inner_size(1100.0, 800.0)
             .resizable(true)
             .center()
@@ -1129,11 +1129,11 @@ pub fn run() {
             .skip_taskbar(true) // 不显示在任务栏，完全后台运行
             .build()
           {
-            Ok(_) => info!("[setup] MinMax 窗口已静默创建（后台加载，不显示在任务栏）"),
-            Err(e) => error!("[setup] MinMax 窗口静默创建失败: {}", e),
+            Ok(_) => info!("[setup] MiniMax 窗口已静默创建（后台加载，不显示在任务栏）"),
+            Err(e) => error!("[setup] MiniMax 窗口静默创建失败: {}", e),
           }
         } else {
-          info!("[setup] MinMax 窗口已存在，跳过创建");
+          info!("[setup] MiniMax 窗口已存在，跳过创建");
         }
       });
 

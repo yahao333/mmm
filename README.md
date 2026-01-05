@@ -1,4 +1,4 @@
-# MinMax Helper
+# MiniMax Helper
 
 MiniMax 使用量监控桌面应用（Tauri + React）。支持阈值预警、后台定时检查、企业微信通知、语言切换、以及“恢复出厂设置”（清除缓存并退出应用）。
 
@@ -87,7 +87,7 @@ pnpm test:e2e
 
 ## 常见问题
 - 为什么恢复后仍感觉有缓存？
-  - MinMax 外部页面加载在独立 WebView 中，其存储（如 IndexedDB、Cache、Service Worker 等）与本应用域不同。现在“恢复出厂设置”会同时清理两侧存储，并在最后退出应用，确保下次启动为干净状态。HttpOnly Cookie 无法通过 JS 删除，但退出应用后浏览器内核会重新初始化。
+  - MiniMax 外部页面加载在独立 WebView 中，其存储（如 IndexedDB、Cache、Service Worker 等）与本应用域不同。现在“恢复出厂设置”会同时清理两侧存储，并在最后退出应用，确保下次启动为干净状态。HttpOnly Cookie 无法通过 JS 删除，但退出应用后浏览器内核会重新初始化。
 
 ## 项目结构（关键文件）
 - 前端入口：[src/main.tsx](src/main.tsx)
@@ -110,7 +110,7 @@ pnpm test:e2e
 
 ---
 
-# MinMax Helper (English)
+# MiniMax Helper (English)
 
 A desktop app (Tauri + React) for monitoring MiniMax usage. It supports threshold alerts, background scheduled checks, WeChat Work webhook notifications, language switching, and “Reset to Factory Settings” (clear caches and exit).
 
@@ -202,4 +202,3 @@ Note: Playwright is not pinned in devDependencies; `pnpm dlx` installs browser r
 
 ## License
 - MIT
-

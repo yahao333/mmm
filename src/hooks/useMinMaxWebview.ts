@@ -3,11 +3,11 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 
 /**
- * MinMax Webview Hook
- * 管理 MinMax 页面的加载和数据获取逻辑
+ * MiniMax Webview Hook
+ * 管理 MiniMax 页面的加载和数据获取逻辑
  */
 
-// MinMax 使用量页面 URL
+// MiniMax 使用量页面 URL
 const MINMAX_USAGE_URL = 'https://platform.minimaxi.com/user-center/payment/coding-plan';
 
 // 返回值接口
@@ -48,7 +48,7 @@ function isTauriRuntime(): boolean {
 }
 
 /**
- * 使用 MinMax Webview 管理
+ * 使用 MiniMax Webview 管理
  * @returns Webview 相关状态和方法
  */
 export function useMinMaxWebview(): UseMinMaxWebviewReturn {
@@ -66,26 +66,26 @@ export function useMinMaxWebview(): UseMinMaxWebviewReturn {
   const openMinMaxWindowRef = useRef<(() => Promise<void>) | null>(null);
 
   /**
-   * 在 Tauri 窗口中打开 MinMax 页面
+   * 在 Tauri 窗口中打开 MiniMax 页面
    */
   const openMinMaxWindowInTauri = useCallback(async () => {
-    console.log('[useMinMaxWebview] 通过后端创建/显示 MinMax 窗口:', MINMAX_USAGE_URL);
+    console.log('[useMinMaxWebview] 通过后端创建/显示 MiniMax 窗口:', MINMAX_USAGE_URL);
     await invoke('open_minmax_window');
     setIsWebviewOpen(true);
   }, []);
 
   /**
-   * 在浏览器中打开 MinMax 页面
+   * 在浏览器中打开 MiniMax 页面
    */
   const openMinMaxInBrowser = useCallback(() => {
     console.log('[useMinMaxWebview] 非 Tauri 环境，使用浏览器打开:', MINMAX_USAGE_URL);
     window.open(MINMAX_USAGE_URL, '_blank');
     setIsWebviewOpen(true);
-    setWebviewHint('已打开 MinMax 页面：登录后会自动同步使用量（无需复制），稍等几秒再回来看');
+    setWebviewHint('已打开 MiniMax 页面：登录后会自动同步使用量（无需复制），稍等几秒再回来看');
   }, []);
 
   /**
-   * 打开 MinMax 页面（自动选择环境）
+   * 打开 MiniMax 页面（自动选择环境）
    * 使用函数声明避免循环依赖问题
    */
   // eslint-disable-next-line func-names
@@ -165,11 +165,11 @@ export function useMinMaxWebview(): UseMinMaxWebviewReturn {
 
     try {
       await openMinMaxWindow();
-      setWebviewHint('已打开 MinMax 页面：登录后会自动同步使用量（无需复制），稍等几秒再回来看');
+      setWebviewHint('已打开 MiniMax 页面：登录后会自动同步使用量（无需复制），稍等几秒再回来看');
     } catch (err) {
       console.error('[useMinMaxWebview] 执行脚本失败:', err);
       const detail = formatUnknownError(err);
-      setWebviewError(`打开 MinMax 页面失败：${detail}`);
+      setWebviewError(`打开 MiniMax 页面失败：${detail}`);
     } finally {
       setWebviewLoading(false);
     }

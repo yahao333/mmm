@@ -1,7 +1,7 @@
 {
   "name": "minmax-helper",
   "version": "1.0.0",
-  "description": "MinMax 账号使用量监控工具",
+  "description": "MiniMax 账号使用量监控工具",
   "type": "module",
   "scripts": {
     "dev": "vite",

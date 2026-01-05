@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "MinMax Helper",
+  "productName": "MiniMax Helper",
   "version": "0.1.0",
   "identifier": "com.minmax.helper",
   "build": {
@@ -13,7 +13,7 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "MinMax Helper",
+        "title": "MiniMax Helper",
         "width": 400,
         "height": 680,
         "resizable": false,
@@ -39,7 +39,7 @@
         },
         {
           "identifier": "minmax-remote",
-          "description": "仅允许 MinMax 远程页面上报使用量事件",
+          "description": "仅允许 MiniMax 远程页面上报使用量事件",
           "windows": [
             "minmax"
           ],

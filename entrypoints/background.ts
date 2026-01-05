@@ -1,7 +1,7 @@
 // Background Script - 后台脚本
 // 处理扩展的后台任务，如定时检查、通知等
 
-console.log('[MinMax Background] 后台脚本已启动');
+console.log('[MiniMax Background] 后台脚本已启动');
 
 const ALARM_NAME = 'checkUsage';
 let lastErrorTime = 0;
@@ -16,7 +16,7 @@ const NOTIFICATION_QUEUE_KEY = 'notificationQueue';
 function main(): void {
   // 监听安装事件
   chrome.runtime.onInstalled.addListener(() => {
-    console.log('[MinMax Background] 扩展已安装/更新');
+    console.log('[MiniMax Background] 扩展已安装/更新');
 
     // 初始化存储的配置
     chrome.storage.local.get(['checkInterval', 'warningThreshold', 'wechatWorkWebhookUrl', NOTIFICATION_QUEUE_KEY], (result) => {
@@ -28,7 +28,7 @@ function main(): void {
           wechatWorkWebhookUrl: '',
           [NOTIFICATION_QUEUE_KEY]: []
         });
-        console.log('[MinMax Background] 已初始化默认配置');
+        console.log('[MiniMax Background] 已初始化默认配置');
       }
       // 设置定时任务
       setupAlarm(result.checkInterval || 30);
@@ -37,7 +37,7 @@ function main(): void {
 
   // 监听浏览器启动事件（防止重启后未恢复定时任务）
   chrome.runtime.onStartup.addListener(() => {
-    console.log('[MinMax Background] 浏览器启动，检查并恢复定时任务');
+    console.log('[MiniMax Background] 浏览器启动，检查并恢复定时任务');
     void ensureAlarmScheduled('onStartup');
   });
 
@@ -45,7 +45,7 @@ function main(): void {
   chrome.storage.onChanged.addListener((changes, areaName) => {
     if (areaName === 'local' && changes.checkInterval) {
       const newInterval = changes.checkInterval.newValue;
-      console.log('[MinMax Background] 检查间隔已更新为:', newInterval);
+      console.log('[MiniMax Background] 检查间隔已更新为:', newInterval);
       setupAlarm(newInterval);
     }
   });
@@ -53,7 +53,7 @@ function main(): void {
   // 监听定时任务
   chrome.alarms.onAlarm.addListener((alarm) => {
     if (alarm.name === ALARM_NAME) {
-      console.log('[MinMax Background] 定时检查触发');
+      console.log('[MiniMax Background] 定时检查触发');
       // 执行定时检查任务
       scheduledCheck();
     }
@@ -61,7 +61,7 @@ function main(): void {
 
   // 监听来自 popup 或 content script 的消息
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    console.log('[MinMax Background] 收到消息:', message);
+    console.log('[MiniMax Background] 收到消息:', message);
 
     if (message.action === 'checkUsage') {
       // 检查使用量（手动触发，不使用队列）
@@ -75,7 +75,7 @@ function main(): void {
 
     if (message.action === 'sendNotification') {
       // 发送预警通知
-      console.log('[MinMax Background] 收到发送通知请求，使用量:', message.usage + '%');
+      console.log('[MiniMax Background] 收到发送通知请求，使用量:', message.usage + '%');
       sendWarningNotification(message.usage);
       return false;
     }
@@ -92,7 +92,7 @@ function main(): void {
   // 后台脚本启动时也检查一次，避免 service worker 被唤醒但 alarm 未创建
   void ensureAlarmScheduled('backgroundStart');
 
-  console.log('[MinMax Background] 后台脚本加载完成');
+  console.log('[MiniMax Background] 后台脚本加载完成');
 }
 
 // 导出 main 函数供 wxt 使用
@@ -126,7 +126,7 @@ async function getNotificationQueue(): Promise<NotificationItem[]> {
   return new Promise((resolve) => {
     chrome.storage.local.get([NOTIFICATION_QUEUE_KEY], (result) => {
       const queue = result[NOTIFICATION_QUEUE_KEY] || [];
-      console.log('[MinMax Background] 获取通知队列，当前数量:', queue.length);
+      console.log('[MiniMax Background] 获取通知队列，当前数量:', queue.length);
       resolve(queue as NotificationItem[]);
     });
   });
@@ -138,7 +138,7 @@ async function getNotificationQueue(): Promise<NotificationItem[]> {
 async function saveNotificationQueue(queue: NotificationItem[]): Promise<void> {
   return new Promise((resolve) => {
     chrome.storage.local.set({ [NOTIFICATION_QUEUE_KEY]: queue }, () => {
-      console.log('[MinMax Background] 保存通知队列，数量:', queue.length);
+      console.log('[MiniMax Background] 保存通知队列，数量:', queue.length);
       resolve();
     });
   });
@@ -153,7 +153,7 @@ async function addToQueue(item: Omit<NotificationItem, 'id' | 'timestamp' | 'sen
   // 检查是否已存在相同类型的未发送通知（避免重复添加）
   const existing = queue.find(n => !n.sent && n.type === item.type);
   if (existing) {
-    console.log('[MinMax Background] 存在未发送的同类通知，跳过添加:', item.type);
+    console.log('[MiniMax Background] 存在未发送的同类通知，跳过添加:', item.type);
     return;
   }
 
@@ -166,7 +166,7 @@ async function addToQueue(item: Omit<NotificationItem, 'id' | 'timestamp' | 'sen
 
   queue.push(newItem);
   await saveNotificationQueue(queue);
-  console.log('[MinMax Background] 添加通知到队列:', newItem.id, newItem.type);
+  console.log('[MiniMax Background] 添加通知到队列:', newItem.id, newItem.type);
 }
 
 /**
@@ -190,7 +190,7 @@ async function sendQueuedNotifications(): Promise<number> {
   for (const item of queue) {
     if (item.sent) continue;
 
-    console.log('[MinMax Background] 发送队列中的通知:', item.id, item.type);
+    console.log('[MiniMax Background] 发送队列中的通知:', item.id, item.type);
 
     // 发送系统通知
     if (item.type === 'warning') {
@@ -203,9 +203,9 @@ async function sendQueuedNotifications(): Promise<number> {
           priority: 2,
           requireInteraction: true,
         });
-        console.log('[MinMax Background] 系统预警通知已发送');
+        console.log('[MiniMax Background] 系统预警通知已发送');
       } catch (err) {
-        console.error('[MinMax Background] 发送系统预警通知失败:', err);
+        console.error('[MiniMax Background] 发送系统预警通知失败:', err);
       }
     } else if (item.type === 'error') {
       try {
@@ -215,9 +215,9 @@ async function sendQueuedNotifications(): Promise<number> {
           message: item.content,
           priority: 2,
         });
-        console.log('[MinMax Background] 系统错误通知已发送');
+        console.log('[MiniMax Background] 系统错误通知已发送');
       } catch (err) {
-        console.error('[MinMax Background] 发送系统错误通知失败:', err);
+        console.error('[MiniMax Background] 发送系统错误通知失败:', err);
       }
     }
 
@@ -238,7 +238,7 @@ async function sendQueuedNotifications(): Promise<number> {
     const sorted = [...queue].sort((a, b) => b.sentAt! - a.sentAt!);
     const cleaned = sorted.slice(0, 10);
     await saveNotificationQueue(cleaned);
-    console.log('[MinMax Background] 清理旧通知，保留最近 10 条');
+    console.log('[MiniMax Background] 清理旧通知，保留最近 10 条');
   }
 
   return sentCount;
@@ -262,7 +262,7 @@ async function cleanupOldNotifications(): Promise<void> {
 
   if (filtered.length !== queue.length) {
     await saveNotificationQueue(filtered);
-    console.log('[MinMax Background] 清理过期通知，清理数量:', queue.length - filtered.length);
+    console.log('[MiniMax Background] 清理过期通知，清理数量:', queue.length - filtered.length);
   }
 }
 
@@ -274,58 +274,58 @@ async function cleanupOldNotifications(): Promise<void> {
  * 2. 然后检查使用量，如果需要预警则添加到队列
  */
 async function scheduledCheck(): Promise<void> {
-  console.log('[MinMax Background] ========== 开始定时检查 ==========');
+  console.log('[MiniMax Background] ========== 开始定时检查 ==========');
 
   try {
     // 步骤 1: 发送队列中的待发送通知
-    console.log('[MinMax Background] 步骤 1: 检查待发送通知');
+    console.log('[MiniMax Background] 步骤 1: 检查待发送通知');
     const sentCount = await sendQueuedNotifications();
     if (sentCount > 0) {
-      console.log(`[MinMax Background] 已发送 ${sentCount} 条待发送通知`);
+      console.log(`[MiniMax Background] 已发送 ${sentCount} 条待发送通知`);
     } else {
-      console.log('[MinMax Background] 没有待发送的通知');
+      console.log('[MiniMax Background] 没有待发送的通知');
     }
 
     // 步骤 2: 检查使用量
-    console.log('[MinMax Background] 步骤 2: 检查使用量');
+    console.log('[MiniMax Background] 步骤 2: 检查使用量');
     const result = await checkMinMaxUsage(true);
 
     if (result.warning && result.usage !== null) {
-      console.log('[MinMax Background] 使用量超过阈值，添加到通知队列');
+      console.log('[MiniMax Background] 使用量超过阈值，添加到通知队列');
 
       // 添加预警通知到队列
       await addToQueue({
         type: 'warning',
-        title: 'MinMax 使用量预警',
+        title: 'MiniMax 使用量预警',
         content: `当前使用量已达到 ${result.usage.toFixed(1)}%，请注意配额使用情况！`,
         usage: result.usage,
       });
 
-      console.log('[MinMax Background] 预警通知已添加到队列，下次检查时发送');
+      console.log('[MiniMax Background] 预警通知已添加到队列，下次检查时发送');
     }
 
     // 步骤 3: 清理过期通知
-    console.log('[MinMax Background] 步骤 3: 清理过期通知');
+    console.log('[MiniMax Background] 步骤 3: 清理过期通知');
     await cleanupOldNotifications();
 
     // 获取并打印队列状态
     const status = await getQueueStatus();
-    console.log('[MinMax Background] 队列状态: 待发送', status.pending, '条，已发送', status.sent, '条');
+    console.log('[MiniMax Background] 队列状态: 待发送', status.pending, '条，已发送', status.sent, '条');
 
   } catch (err) {
-    console.error('[MinMax Background] 定时检查任务失败:', err);
+    console.error('[MiniMax Background] 定时检查任务失败:', err);
 
     // 添加错误通知到队列
     await addToQueue({
       type: 'error',
-      title: 'MinMax 监控异常',
+      title: 'MiniMax 监控异常',
       content: `检查使用量时发生错误: ${err instanceof Error ? err.message : String(err)}`,
     });
 
-    console.log('[MinMax Background] 错误通知已添加到队列');
+    console.log('[MiniMax Background] 错误通知已添加到队列');
   }
 
-  console.log('[MinMax Background] ========== 定时检查完成 ==========');
+  console.log('[MiniMax Background] ========== 定时检查完成 ==========');
 }
 
 // ==================== 使用量检查 ====================
@@ -337,7 +337,7 @@ async function scheduledCheck(): Promise<void> {
  * @returns 是否成功等待到 content script 就绪
  */
 async function waitForContentScript(tabId: number, timeoutMs: number = 10000): Promise<boolean> {
-  console.log('[MinMax Background] 等待 content script 就绪...');
+  console.log('[MiniMax Background] 等待 content script 就绪...');
 
   const startTime = Date.now();
 
@@ -346,7 +346,7 @@ async function waitForContentScript(tabId: number, timeoutMs: number = 10000): P
     const checkInterval = setInterval(async () => {
       // 检查是否超时
       if (Date.now() - startTime > timeoutMs) {
-        console.log('[MinMax Background] 等待 content script 超时');
+        console.log('[MiniMax Background] 等待 content script 超时');
         clearInterval(checkInterval);
         resolve(false);
         return;
@@ -356,7 +356,7 @@ async function waitForContentScript(tabId: number, timeoutMs: number = 10000): P
         // 尝试发送 ping 消息检查 content script 是否就绪
         const response = await chrome.tabs.sendMessage(tabId, { action: 'ping' });
         if (response && response.pong) {
-          console.log('[MinMax Background] content script 已就绪');
+          console.log('[MiniMax Background] content script 已就绪');
           clearInterval(checkInterval);
           resolve(true);
         }
@@ -368,52 +368,52 @@ async function waitForContentScript(tabId: number, timeoutMs: number = 10000): P
 }
 
 /**
- * 检查 MinMax 使用量
+ * 检查 MiniMax 使用量
  * @param shouldRefreshPage 是否刷新页面后再检查（定时任务时为 true）
  * @returns 使用量检查结果
  */
 async function checkMinMaxUsage(shouldRefreshPage: boolean = false): Promise<{ success: boolean; usage: number | null; warning: boolean }> {
-  console.log('[MinMax Background] 开始检查使用量...', shouldRefreshPage ? '需要刷新页面' : '');
+  console.log('[MiniMax Background] 开始检查使用量...', shouldRefreshPage ? '需要刷新页面' : '');
 
   try {
-    // 获取当前 MinMax 标签页
+    // 获取当前 MiniMax 标签页
     const tabs = await chrome.tabs.query({ url: '*://platform.minimaxi.com/*' });
-    console.log('[MinMax Background] 找到 MinMax 标签页数量:', tabs.length);
+    console.log('[MiniMax Background] 找到 MiniMax 标签页数量:', tabs.length);
 
     if (tabs.length === 0) {
-      console.log('[MinMax Background] 未找到 MinMax 页面');
+      console.log('[MiniMax Background] 未找到 MiniMax 页面');
       return { success: false, usage: null, warning: false };
     }
 
-    // 获取第一个 MinMax 标签页
+    // 获取第一个 MiniMax 标签页
     const tab = tabs[0];
 
     // 如果需要刷新页面
     if (shouldRefreshPage && tab.id) {
-      console.log('[MinMax Background] 刷新页面以获取最新数据');
+      console.log('[MiniMax Background] 刷新页面以获取最新数据');
 
       // 刷新页面
       await chrome.tabs.reload(tab.id);
 
       // 等待页面加载完成并检查 content script 是否就绪
-      console.log('[MinMax Background] 等待页面加载和 content script 注入...');
+      console.log('[MiniMax Background] 等待页面加载和 content script 注入...');
       let isReady = await waitForContentScript(tab.id);
 
       if (!isReady) {
-        console.log('[MinMax Background] content script 未就绪，尝试手动注入...');
+        console.log('[MiniMax Background] content script 未就绪，尝试手动注入...');
         // 手动注入 content script（路径必须以 / 开头，相对于扩展根目录）
         await chrome.scripting.executeScript({
           target: { tabId: tab.id },
           files: ['/content-scripts/content.js'],
         });
-        console.log('[MinMax Background] 已注入 content script，等待初始化...');
+        console.log('[MiniMax Background] 已注入 content script，等待初始化...');
 
         // 等待注入后的 content script 初始化
         await new Promise(resolve => setTimeout(resolve, 1000));
         isReady = await waitForContentScript(tab.id, 5000);
 
         if (!isReady) {
-          console.log('[MinMax Background] 手动注入后仍未就绪，尝试再次注入...');
+          console.log('[MiniMax Background] 手动注入后仍未就绪，尝试再次注入...');
           await chrome.scripting.executeScript({
             target: { tabId: tab.id },
             files: ['/content-scripts/content.js'],
@@ -431,11 +431,11 @@ async function checkMinMaxUsage(shouldRefreshPage: boolean = false): Promise<{ s
     while (retryCount < maxRetries) {
       try {
         results = await chrome.tabs.sendMessage(tab.id!, { action: 'getUsage' });
-        console.log('[MinMax Background] 获取到使用量:', results);
+        console.log('[MiniMax Background] 获取到使用量:', results);
         break; // 成功，跳出重试循环
       } catch (err) {
         retryCount++;
-        console.warn(`[MinMax Background] 获取使用量失败（第 ${retryCount} 次）:`, err);
+        console.warn(`[MiniMax Background] 获取使用量失败（第 ${retryCount} 次）:`, err);
         if (retryCount < maxRetries) {
           // 等待后重试
           await new Promise(resolve => setTimeout(resolve, 1000));
@@ -462,7 +462,7 @@ async function checkMinMaxUsage(shouldRefreshPage: boolean = false): Promise<{ s
       warning: shouldWarn,
     };
   } catch (err) {
-    console.error('[MinMax Background] 检查使用量失败:', err);
+    console.error('[MiniMax Background] 检查使用量失败:', err);
     throw err;
   }
 }
@@ -476,20 +476,20 @@ function setupAlarm(intervalMinutes: number) {
   intervalMinutes = Number(intervalMinutes);
 
   if (!Number.isFinite(intervalMinutes)) {
-    console.warn('[MinMax Background] 检查间隔不是有效数字，重置为 1 分钟:', raw);
+    console.warn('[MiniMax Background] 检查间隔不是有效数字，重置为 1 分钟:', raw);
     intervalMinutes = 1;
   }
 
   // 防御性检查：确保间隔大于 0
   if (!intervalMinutes || intervalMinutes <= 0) {
-    console.warn('[MinMax Background] 检查间隔无效，重置为 1 分钟:', intervalMinutes);
+    console.warn('[MiniMax Background] 检查间隔无效，重置为 1 分钟:', intervalMinutes);
     intervalMinutes = 1;
   }
 
   chrome.alarms.create(ALARM_NAME, {
     periodInMinutes: intervalMinutes
   });
-  console.log(`[MinMax Background] 定时任务已设置，间隔: ${intervalMinutes}分钟`);
+  console.log(`[MiniMax Background] 定时任务已设置，间隔: ${intervalMinutes}分钟`);
 }
 
 async function getStoredCheckIntervalMinutes(): Promise<number> {
@@ -500,7 +500,7 @@ async function getStoredCheckIntervalMinutes(): Promise<number> {
     if (Number.isFinite(interval) && interval > 0) return interval;
     return 30;
   } catch (err) {
-    console.warn('[MinMax Background] 读取检查间隔失败，使用默认值 30 分钟:', err);
+    console.warn('[MiniMax Background] 读取检查间隔失败，使用默认值 30 分钟:', err);
     return 30;
   }
 }
@@ -516,14 +516,14 @@ async function ensureAlarmScheduled(reason: string): Promise<void> {
   const existing = await getAlarmByName(ALARM_NAME);
 
   if (!existing) {
-    console.log('[MinMax Background] 未找到已存在的定时任务，准备创建。原因:', reason, 'interval:', intervalMinutes);
+    console.log('[MiniMax Background] 未找到已存在的定时任务，准备创建。原因:', reason, 'interval:', intervalMinutes);
     setupAlarm(intervalMinutes);
     return;
   }
 
   if (existing.periodInMinutes !== intervalMinutes) {
     console.log(
-      '[MinMax Background] 定时任务间隔与配置不一致，准备更新。原因:',
+      '[MiniMax Background] 定时任务间隔与配置不一致，准备更新。原因:',
       reason,
       'alarm.periodInMinutes:',
       existing.periodInMinutes,
@@ -534,7 +534,7 @@ async function ensureAlarmScheduled(reason: string): Promise<void> {
     return;
   }
 
-  console.log('[MinMax Background] 定时任务已存在且配置一致。原因:', reason, 'interval:', intervalMinutes);
+  console.log('[MiniMax Background] 定时任务已存在且配置一致。原因:', reason, 'interval:', intervalMinutes);
 }
 
 // ==================== 通知发送 ====================
@@ -547,10 +547,10 @@ async function sendErrorNotification(error: string): Promise<void> {
   // 添加错误通知到队列
   await addToQueue({
     type: 'error',
-    title: 'MinMax 监控异常',
+    title: 'MiniMax 监控异常',
     content: `检查使用量时发生错误: ${error}`,
   });
-  console.log('[MinMax Background] 错误通知已添加到队列');
+  console.log('[MiniMax Background] 错误通知已添加到队列');
 }
 
 /**
@@ -561,11 +561,11 @@ async function sendWarningNotification(usage: number): Promise<void> {
   // 添加预警通知到队列
   await addToQueue({
     type: 'warning',
-    title: 'MinMax 使用量预警',
+    title: 'MiniMax 使用量预警',
     content: `当前使用量已达到 ${usage.toFixed(1)}%，请注意配额使用情况！`,
     usage: usage,
   });
-  console.log('[MinMax Background] 预警通知已添加到队列');
+  console.log('[MiniMax Background] 预警通知已添加到队列');
 }
 
 /**
@@ -582,7 +582,7 @@ async function sendWeChatWorkNotification(title: string, content: string): Promi
 
     // 如果没有配置 Webhook URL，跳过发送
     if (!webhookUrl || webhookUrl.trim() === '') {
-      console.log('[MinMax Background] 未配置企业微信 Webhook URL，跳过企业微信通知');
+      console.log('[MiniMax Background] 未配置企业微信 Webhook URL，跳过企业微信通知');
       return false;
     }
 
@@ -595,13 +595,13 @@ async function sendWeChatWorkNotification(title: string, content: string): Promi
         return 'invalid_url';
       }
     })();
-    console.log('[MinMax Background] 准备发送企业微信通知，Webhook:', maskedWebhookUrl);
+    console.log('[MiniMax Background] 准备发送企业微信通知，Webhook:', maskedWebhookUrl);
 
     // 构建企业微信消息格式
     const message = {
       msgtype: 'markdown',
       markdown: {
-        content: `**${title}**\n\n${content}\n\n---\n*来自 MinMax 使用量监控扩展*`,
+        content: `**${title}**\n\n${content}\n\n---\n*来自 MiniMax 使用量监控扩展*`,
       },
     };
 
@@ -622,10 +622,10 @@ async function sendWeChatWorkNotification(title: string, content: string): Promi
 
     // 读取响应内容
     const responseText = await response.text();
-    console.log('[MinMax Background] 企业微信响应状态:', response.status, '响应内容:', responseText);
+    console.log('[MiniMax Background] 企业微信响应状态:', response.status, '响应内容:', responseText);
 
     if (response.ok) {
-      console.log('[MinMax Background] 企业微信通知发送成功');
+      console.log('[MiniMax Background] 企业微信通知发送成功');
       return true;
     } else {
       // 解析企业微信返回的错误信息
@@ -636,15 +636,15 @@ async function sendWeChatWorkNotification(title: string, content: string): Promi
       } catch {
         // 响应不是 JSON 格式，使用默认错误信息
       }
-      console.error('[MinMax Background] 企业微信通知发送失败:', errorMsg);
+      console.error('[MiniMax Background] 企业微信通知发送失败:', errorMsg);
       return false;
     }
   } catch (err) {
     // 区分超时错误和其他错误
     if (err instanceof Error && err.name === 'AbortError') {
-      console.error('[MinMax Background] 企业微信通知请求超时，请检查网络连接');
+      console.error('[MiniMax Background] 企业微信通知请求超时，请检查网络连接');
     } else {
-      console.error('[MinMax Background] 发送企业微信通知时发生错误:', err);
+      console.error('[MiniMax Background] 发送企业微信通知时发生错误:', err);
     }
     return false;
   }
