@@ -622,6 +622,51 @@ async fn test_notification() -> Result<(), String> {
   Ok(())
 }
 
+/// 测试企业微信通知
+/// 发送一个测试通知到企业微信 Webhook
+#[tauri::command]
+async fn test_wechat_notification(webhook_url: String) -> Result<(), String> {
+  info!("测试企业微信通知, URL: {}", webhook_url);
+
+  // 构建测试消息
+  let message = serde_json::json!({
+    "msgtype": "markdown",
+    "markdown": {
+      "content": "**MinMax 使用量监控测试通知**\n\n这是一条测试消息，用于验证企业微信机器人配置是否正确。\n\n---\n*来自 MiniMax 使用量监控*"
+    }
+  });
+
+  // 发送 HTTP 请求
+  let client = reqwest::Client::new();
+  let response = client
+    .post(&webhook_url)
+    .json(&message)
+    .send()
+    .await
+    .map_err(|e| format!("企业微信请求失败: {}", e))?;
+
+  let status = response.status();
+  let response_text = response.text().await.unwrap_or_default();
+
+  info!("企业微信响应状态: {}, 内容: {}", status, response_text);
+
+  if status.is_success() {
+    info!("企业微信测试通知发送成功");
+    Ok(())
+  } else {
+    let error_msg = if response_text.contains("errmsg") {
+      serde_json::from_str::<serde_json::Value>(&response_text)
+        .ok()
+        .and_then(|v| v.get("errmsg").map(|e| e.to_string()))
+        .unwrap_or_else(|| format!("HTTP {}", status.as_u16()))
+    } else {
+      format!("HTTP {}", status.as_u16())
+    };
+    warn!("企业微信测试通知发送失败: {}", error_msg);
+    Err(error_msg)
+  }
+}
+
 /// 发送错误通知
 /// 当检查使用量发生错误时发送通知
 #[tauri::command]
@@ -1050,6 +1095,7 @@ pub fn run() {
       exit_app,
       get_config_path_debug,
       test_notification,
+      test_wechat_notification,
       send_warning_notification,
       send_error_notification,
       open_url,

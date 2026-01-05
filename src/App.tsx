@@ -336,17 +336,17 @@ function App() {
   }, []);
 
   /**
-   * 测试系统通知
+   * 测试通知（同时发送系统通知和企业微信通知）
    */
   const testNotification = useCallback(async () => {
     console.log('[App] 发送测试通知');
-    const success = await sendTestNotification();
+    const success = await sendTestNotification(settings.wechatWorkWebhookUrl);
     if (success) {
       alert(t('notificationSent'));
     } else {
       alert('Failed: ' + notificationState.message);
     }
-  }, [sendTestNotification, notificationState.message]);
+  }, [sendTestNotification, settings.wechatWorkWebhookUrl, notificationState.message]);
 
   /**
    * 输入处理函数

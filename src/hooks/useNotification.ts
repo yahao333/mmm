@@ -22,7 +22,7 @@ export interface NotificationState {
 export interface UseNotificationReturn {
   notificationState: NotificationState;
   sending: boolean;
-  sendTestNotification: () => Promise<boolean>;
+  sendTestNotification: (webhookUrl?: string) => Promise<boolean>;
   clearNotification: () => void;
 }
 
@@ -42,9 +42,10 @@ export function useNotification(): UseNotificationReturn {
 
   /**
    * 发送测试通知
+   * @param webhookUrl 可选的企业微信 Webhook URL，如果提供则同时发送企业微信通知
    */
-  const sendTestNotification = useCallback(async () => {
-    console.log('[useNotification] 发送测试通知');
+  const sendTestNotification = useCallback(async (webhookUrl?: string) => {
+    console.log('[useNotification] 发送测试通知', webhookUrl ? '包含企业微信' : '');
     setSending(true);
     setNotificationState({
       success: false,
@@ -53,13 +54,27 @@ export function useNotification(): UseNotificationReturn {
     });
 
     try {
+      // 发送系统通知
       await invoke('test_notification');
-      setNotificationState({
-        success: true,
-        message: '测试通知已发送',
-        type: 'success',
-      });
-      console.log('[useNotification] 测试通知已发送');
+      console.log('[useNotification] 系统测试通知已发送');
+
+      // 如果提供了企业微信 Webhook URL，发送企业微信通知
+      if (webhookUrl && webhookUrl.trim() !== '') {
+        await invoke('test_wechat_notification', { webhookUrl });
+        console.log('[useNotification] 企业微信测试通知已发送');
+        setNotificationState({
+          success: true,
+          message: '系统通知和企业微信通知已发送',
+          type: 'success',
+        });
+      } else {
+        setNotificationState({
+          success: true,
+          message: '测试通知已发送',
+          type: 'success',
+        });
+      }
+
       return true;
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err);
