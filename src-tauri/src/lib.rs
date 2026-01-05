@@ -124,8 +124,8 @@ const MINMAX_INIT_SCRIPT: &str = r#"
     let candidates = [];
 
     // 优先匹配：明确的"已使用"模式
-    // 例如 "25% 已使用" 或 "已使用 25%"
-    const usagePattern = /(\d+(?:\.\d+)?)\s*%\s*已使用|已使用\s*(\d+(?:\.\d+)?)\s*%/;
+    // 例如 "25% 已使用" 或 "已使用 25%"，支持 "已用"
+    const usagePattern = /(\d+(?:\.\d+)?)\s*%\s*(?:已使用|已用)|(?:已使用|已用)\s*(\d+(?:\.\d+)?)\s*%/;
     const usageMatch = text.match(usagePattern);
     if (usageMatch) {
         const p = parseFloat(usageMatch[1] || usageMatch[2]);
@@ -151,18 +151,12 @@ const MINMAX_INIT_SCRIPT: &str = r#"
         /优惠\d+%/,
         /折扣\d+%/,
         /赠送\d+%/,
-        // /已用\d+%/, // 移除，可能是正确的使用量
         /剩余\d+%/,
         /可用\d+%/,
-        // /已消耗\d+%/, // 移除
         /进度[:：]?\s*\d+/,
         /completed\s*\d+/i,
         /progress\s*\d+/i,
-        // /\d+\s*%\s*(?:已|剩余|完成|进行)/i, // 过于激进，移除
-        // /(?:已|剩余|完成|进行)\s*\d+\s*%/i, // 过于激进，移除
-        // 排除单独出现的百分比（没有明确的使用量相关描述）
         /^\s*\d+%\s*$/,
-        // 排除包含"总额"、"配额"、"限制"等词的
         /总额[:：]?\s*\d+%/,
         /配额[:：]?\s*\d+%/,
         /限制[:：]?\s*\d+%/,
@@ -182,20 +176,34 @@ const MINMAX_INIT_SCRIPT: &str = r#"
       }
 
       if (!isExcluded) {
-        // 使用量通常不会太低（接近 0%）或太高（接近 100%），除非确实如此
-        // 但优先选择 10-99% 之间的值，因为这个范围最可能是使用量
-        const isLikelyUsage = p >= 10 && p <= 99;
-        candidates.push({ percent: p, context: context, priority: isLikelyUsage ? 2 : 1 });
+        // 计算优先级
+        let priority = 1;
+        
+        // 包含关键词的优先级更高
+        if (/(?:已用|已使用|used|usage)/i.test(context)) {
+          priority = 10;
+        }
+        
+        candidates.push({ percent: p, context: context, priority: priority });
       }
     }
 
-    // 排序：优先选择 10-99% 区间内的值，然后按数值降序
+    // 排序：优先选择高优先级的，如果优先级相同，优先选择数值较小的（保守策略，避免误选到 100% 或其他大数字）
+    // 或者，如果没有明确上下文，可能最大的才是对的？
+    // 针对 0% vs 50% 问题：
+    // 如果 0% 是真实使用量，它周围可能有"已用"。
+    // 如果 50% 是干扰项（如折扣），它应该被排除。如果没被排除且没上下文，它可能被误选。
+    // 此时我们应该信任"有上下文"的候选者。
+    
     if (candidates.length > 0) {
       candidates.sort((a, b) => {
         if (a.priority !== b.priority) {
-          return b.priority - a.priority; // priority 2 > priority 1
+          return b.priority - a.priority; // 优先级高的优先
         }
-        return b.percent - a.percent; // 降序
+        // 优先级相同时，原来的逻辑是取最大值 (b.percent - a.percent)
+        // 但为了修复 0% 被 50% 覆盖的问题，如果都没有上下文，我们可能无法区分。
+        // 但如果有上下文匹配到了 priority 10，那么 0% 就会胜出。
+        return b.percent - a.percent;
       });
 
       const best = candidates[0];
