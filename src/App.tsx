@@ -4,7 +4,6 @@ import { listen } from '@tauri-apps/api/event';
 
 // 导入样式
 import './style.css';
-import './App.css';
 
 // 导入组件
 import { MonitorPanel } from './components/MonitorPanel';
@@ -321,27 +320,30 @@ function App() {
   }, [loadSettingsFromBackend]);
 
   return (
-    <div className="app-container">
+    <div className="w-full max-w-[380px] bg-white/95 rounded-[20px] shadow-[0_20px_60px_rgba(0,0,0,0.3),0_8px_20px_rgba(0,0,0,0.15),inset_0_1px_0_rgba(255,255,255,0.8)] p-5 h-auto min-h-[400px] flex flex-col relative overflow-hidden">
       {/* 状态指示器 */}
-      <div className="status-indicator" style={{ backgroundColor: statusColor }}>
-        {statusIcon}
+      <div
+        className="absolute top-0 left-0 right-0 h-1 rounded-tl-[20px] rounded-tr-[20px] transition-colors duration-300"
+        style={{ backgroundColor: statusColor }}
+      >
       </div>
 
-      <header className="app-header">
-        <h1>
-          <span className="header-icon">📊</span>
+      {/* 头部 */}
+      <header className="flex justify-between items-center mb-5 flex-shrink-0 pt-2">
+        <h1 className="text-[20px] font-semibold m-0 text-gray-800 flex items-center gap-2">
+          <span className="text-[24px]">📊</span>
           {t('title')}
         </h1>
-        <div className="header-actions">
+        <div className="flex items-center gap-2">
           <button
-            className="lang-toggle"
+            className="bg-purple-500/10 hover:bg-purple-500/20 transition-all duration-200 p-2 rounded-xl flex items-center justify-center text-[14px] font-semibold text-purple-600 min-w-[36px]"
             onClick={toggleLanguage}
             title={t('toggleLanguage')}
           >
             {currentLang === 'en' ? '中' : 'EN'}
           </button>
           <button
-            className="settings-toggle"
+            className="bg-purple-500/10 hover:bg-purple-500/20 transition-all duration-200 p-2 rounded-xl flex items-center justify-center text-[18px]"
             onClick={toggleSettings}
             title={t('settings')}
           >
@@ -350,59 +352,69 @@ function App() {
         </div>
       </header>
 
-      <main className="app-main">
+      {/* 主内容区 */}
+      <main className="flex-1 flex flex-col overflow-hidden">
         {showSettings ? (
-          <div className="settings-panel">
-            <h3>
-              <span className="panel-icon">⚙️</span>
+          <div className="flex flex-col gap-5 animate-fade-in">
+            <h3 className="text-[18px] font-semibold m-0 mb-2 text-gray-800 flex items-center gap-2">
+              <span className="text-[20px]">⚙️</span>
               {t('settingsTitle')}
             </h3>
 
-            <div className="form-group">
-              <label>{t('warningThreshold')}</label>
+            <div className="flex flex-col gap-2">
+              <label className="text-[13px] font-medium text-gray-600">{t('warningThreshold')}</label>
               <input
                 type="number"
                 value={settings.warningThreshold}
                 onChange={handleWarningThresholdChange}
                 min={0}
                 max={100}
-                className="form-input"
+                className="w-full px-[14px] py-[10px] border border-gray-200 rounded-xl outline-none transition-all duration-200 bg-white/90 focus:border-purple-500 focus:shadow-[0_0_0_3px_rgba(102,126,234,0.2)]"
               />
             </div>
 
-            <div className="form-group">
-              <label>{t('checkInterval')}</label>
+            <div className="flex flex-col gap-2">
+              <label className="text-[13px] font-medium text-gray-600">{t('checkInterval')}</label>
               <input
                 type="number"
                 value={settings.checkInterval}
                 onChange={handleCheckIntervalChange}
                 min={1}
-                className="form-input"
+                className="w-full px-[14px] py-[10px] border border-gray-200 rounded-xl outline-none transition-all duration-200 bg-white/90 focus:border-purple-500 focus:shadow-[0_0_0_3px_rgba(102,126,234,0.2)]"
               />
             </div>
 
-            <div className="form-group">
-              <label>{t('wechatWorkWebhookUrl')}</label>
+            <div className="flex flex-col gap-2">
+              <label className="text-[13px] font-medium text-gray-600">{t('wechatWorkWebhookUrl')}</label>
               <input
                 type="text"
                 value={settings.wechatWorkWebhookUrl}
                 onChange={handleWebhookUrlChange}
-                className="form-input"
+                className="w-full px-[14px] py-[10px] border border-gray-200 rounded-xl outline-none transition-all duration-200 bg-white/90 focus:border-purple-500 focus:shadow-[0_0_0_3px_rgba(102,126,234,0.2)]"
                 placeholder={t('wechatWorkWebhookUrlPlaceholder')}
               />
             </div>
 
-            <div className="form-group">
-              <button onClick={testNotification} className="test-btn">
+            <div className="flex flex-col gap-2">
+              <button
+                onClick={testNotification}
+                className="w-full px-5 py-3 bg-gradient-to-r from-pink-500 to-rose-500 text-white rounded-xl font-medium text-[14px] cursor-pointer transition-all duration-200 shadow-[0_4px_15px_rgba(245,87,108,0.3)] hover:shadow-[0_6px_20px_rgba(245,87,108,0.4)] hover:-translate-y-0.5"
+              >
                 {t('testNotification')}
               </button>
             </div>
 
-            <div className="settings-actions">
-              <button onClick={saveSettings} className="save-btn">
+            <div className="flex gap-3 mt-2">
+              <button
+                onClick={saveSettings}
+                className="flex-1 px-5 py-3 bg-gradient-to-r from-indigo-500 to-purple-600 text-white rounded-xl font-medium text-[14px] cursor-pointer transition-all duration-200 shadow-[0_4px_15px_rgba(102,126,234,0.4)] hover:shadow-[0_6px_20px_rgba(102,126,234,0.5)] hover:-translate-y-0.5"
+              >
                 {t('save')}
               </button>
-              <button onClick={cancelSettings} className="cancel-btn">
+              <button
+                onClick={cancelSettings}
+                className="flex-1 px-5 py-3 bg-gray-100 text-gray-600 rounded-xl font-medium text-[14px] cursor-pointer border border-gray-200 transition-all duration-200 hover:bg-gray-200 hover:-translate-y-0.5"
+              >
                 {t('cancel')}
               </button>
             </div>

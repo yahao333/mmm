@@ -1,12 +1,7 @@
-/* 全局样式 */
+/* 引入 Tailwind CSS */
+@import "tailwindcss";
 
-/* 基础重置样式 */
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-}
-
+/* 全局样式 - 页面居中 */
 html, body {
   height: 100%;
   width: 100%;
@@ -28,45 +23,7 @@ html, body {
   padding: 20px;
 }
 
-/* 链接样式 */
-a {
-  color: #2196f3;
-  text-decoration: none;
-}
-
-a:hover {
-  text-decoration: underline;
-}
-
-/* 按钮基础样式 */
-button {
-  font-family: inherit;
-  font-size: inherit;
-  cursor: pointer;
-  border: none;
-  outline: none;
-  transition: all 0.2s ease;
-}
-
-/* 输入框基础样式 */
-input {
-  font-family: inherit;
-  font-size: inherit;
-  border: 1px solid #e0e0e0;
-  border-radius: 8px;
-  padding: 10px 14px;
-  outline: none;
-  transition: all 0.2s ease;
-  background: rgba(255, 255, 255, 0.9);
-}
-
-input:focus {
-  border-color: #667eea;
-  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.2);
-  background: #fff;
-}
-
-/* 滚动条样式 */
+/* 自定义滚动条样式（Tailwind 没有内置） */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;

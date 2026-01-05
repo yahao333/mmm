@@ -1,12 +1,13 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import tailwindcss from '@tailwindcss/vite';
 import { resolve } from 'path';
 
 // Vite 配置文件
 // 用于配置 React 构建选项和 Tauri 集成
 export default defineConfig({
-  // React 插件配置
-  plugins: [react()],
+  // React 和 Tailwind 插件配置
+  plugins: [react(), tailwindcss()],
 
   // 基础路径配置
   base: './',
