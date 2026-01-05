@@ -1069,7 +1069,7 @@ pub fn run() {
   tauri::Builder::default()
     .plugin(tauri_plugin_mcp_bridge::init())
     .plugin(tauri_plugin_log::Builder::default().build())
-    // 拦截窗口关闭事件，改为隐藏
+    // 拦截窗口关闭事件
     .on_window_event(|window, event| {
       if let tauri::WindowEvent::CloseRequested { api, .. } = event {
         if window.label() == MINMAX_WINDOW_LABEL {
@@ -1078,6 +1078,10 @@ pub fn run() {
           if let Err(e) = window.hide() {
              error!("隐藏窗口失败: {}", e);
           }
+        } else if window.label() == "main" {
+            // 如果是主窗口，直接退出应用
+            info!("主窗口关闭，退出应用");
+            window.app_handle().exit(0);
         }
       }
     })
