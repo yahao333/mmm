@@ -1,6 +1,8 @@
 # MiniMax Monitor
 
-![MiniMax Monitor Screenshot](assets/images/screenshot.png)
+<p align="center">
+  <img src="assets/images/screenshot.png" alt="MiniMax Monitor Screenshot" width="300" />
+</p>
 
 MiniMax 使用量监控桌面应用（Tauri + React）。支持阈值预警、后台定时检查、企业微信通知、语言切换、以及“恢复出厂设置”（清除缓存并退出应用）。
 
