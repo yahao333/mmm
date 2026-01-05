@@ -9,7 +9,7 @@ export default defineConfig({
 
   // 配置 manifest.json 的默认选项
   manifest: {
-    name: 'MiniMax Helper',
+    name: 'MiniMax Monitor',
     description: 'MiniMax 账号使用量监控工具',
     version: '1.0.0',
     author: 'minmax-helper',

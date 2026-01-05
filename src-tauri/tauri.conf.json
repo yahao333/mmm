@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "MiniMax Helper",
+  "productName": "MiniMax Monitor",
   "version": "0.1.0",
   "identifier": "com.minmax.helper",
   "build": {
@@ -13,7 +13,7 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "MiniMax Helper",
+        "title": "MiniMax Monitor",
         "width": 400,
         "height": 680,
         "resizable": false,

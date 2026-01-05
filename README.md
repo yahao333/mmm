@@ -1,4 +1,4 @@
-# MiniMax Helper
+# MiniMax Monitor
 
 MiniMax 使用量监控桌面应用（Tauri + React）。支持阈值预警、后台定时检查、企业微信通知、语言切换、以及“恢复出厂设置”（清除缓存并退出应用）。
 
@@ -110,7 +110,7 @@ pnpm test:e2e
 
 ---
 
-# MiniMax Helper (English)
+# MiniMax Monitor (English)
 
 A desktop app (Tauri + React) for monitoring MiniMax usage. It supports threshold alerts, background scheduled checks, WeChat Work webhook notifications, language switching, and “Reset to Factory Settings” (clear caches and exit).
 

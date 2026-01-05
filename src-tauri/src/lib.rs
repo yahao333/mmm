@@ -619,7 +619,7 @@ async fn test_notification() -> Result<(), String> {
   info!("发送测试通知");
 
   // 发送系统通知
-  let _ = send_system_notification("MiniMax Helper", "测试通知发送成功！").await;
+  let _ = send_system_notification("MiniMax Monitor", "测试通知发送成功！").await;
 
   Ok(())
 }
