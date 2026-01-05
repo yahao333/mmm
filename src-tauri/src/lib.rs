@@ -15,6 +15,36 @@ const MINMAX_INIT_SCRIPT: &str = r#"
   let lastSentPercent = null;
   let lastSentResetTime = null;
   let collectCount = 0;
+  
+  // 调试浮层元素
+  let debugOverlay = null;
+
+  function createOrUpdateOverlay(status, percent, apiStatus) {
+    if (!debugOverlay) {
+      debugOverlay = document.createElement('div');
+      debugOverlay.style.position = 'fixed';
+      debugOverlay.style.top = '10px';
+      debugOverlay.style.right = '10px';
+      debugOverlay.style.padding = '8px 12px';
+      debugOverlay.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
+      debugOverlay.style.color = '#00ff00';
+      debugOverlay.style.borderRadius = '4px';
+      debugOverlay.style.zIndex = '999999';
+      debugOverlay.style.fontSize = '12px';
+      debugOverlay.style.fontFamily = 'monospace';
+      debugOverlay.style.pointerEvents = 'none'; // 不影响点击
+      document.body.appendChild(debugOverlay);
+    }
+    
+    const time = new Date().toLocaleTimeString();
+    debugOverlay.innerHTML = `
+      <div style="font-weight:bold;margin-bottom:4px">MiniMax Helper Debug</div>
+      <div>Time: ${time}</div>
+      <div>Status: ${status}</div>
+      <div>Percent: ${percent !== null ? percent + '%' : 'N/A'}</div>
+      <div>API: ${apiStatus}</div>
+    `;
+  }
 
   function isValidPercent(p) {
     return typeof p === 'number' && Number.isFinite(p) && p >= 0 && p <= 100;
@@ -93,6 +123,18 @@ const MINMAX_INIT_SCRIPT: &str = r#"
     const matches = text.matchAll(/(\d+(?:\.\d+)?)\s*%/g);
     let candidates = [];
 
+    // 优先匹配：明确的"已使用"模式
+    // 例如 "25% 已使用" 或 "已使用 25%"
+    const usagePattern = /(\d+(?:\.\d+)?)\s*%\s*已使用|已使用\s*(\d+(?:\.\d+)?)\s*%/;
+    const usageMatch = text.match(usagePattern);
+    if (usageMatch) {
+        const p = parseFloat(usageMatch[1] || usageMatch[2]);
+        if (isValidPercent(p)) {
+            console.log(TAG, '精确匹配到已使用量:', p + '%');
+            return p;
+        }
+    }
+
     for (const m of matches) {
       const p = parseFloat(m[1]);
       // 严格的范围验证：0-100%
@@ -109,15 +151,15 @@ const MINMAX_INIT_SCRIPT: &str = r#"
         /优惠\d+%/,
         /折扣\d+%/,
         /赠送\d+%/,
-        /已用\d+%/,
+        // /已用\d+%/, // 移除，可能是正确的使用量
         /剩余\d+%/,
         /可用\d+%/,
-        /已消耗\d+%/,
+        // /已消耗\d+%/, // 移除
         /进度[:：]?\s*\d+/,
         /completed\s*\d+/i,
         /progress\s*\d+/i,
-        /\d+\s*%\s*(?:已|剩余|完成|进行)/i,
-        /(?:已|剩余|完成|进行)\s*\d+\s*%/i,
+        // /\d+\s*%\s*(?:已|剩余|完成|进行)/i, // 过于激进，移除
+        // /(?:已|剩余|完成|进行)\s*\d+\s*%/i, // 过于激进，移除
         // 排除单独出现的百分比（没有明确的使用量相关描述）
         /^\s*\d+%\s*$/,
         // 排除包含"总额"、"配额"、"限制"等词的
@@ -230,10 +272,14 @@ const MINMAX_INIT_SCRIPT: &str = r#"
       if (collectCount <= 3) {
         console.log(TAG, '检测 #' + collectCount + ': 未找到使用量数据，页面文本片段:', text.substring(0, 200));
       }
+      createOrUpdateOverlay('Scanning...', null, getTauriEventEmitter() ? 'Ready' : 'Missing');
       return;
     }
 
     const rounded = Math.round(percent * 10) / 10;
+    
+    // 更新浮层
+    createOrUpdateOverlay('Found', rounded, getTauriEventEmitter() ? 'Ready' : 'Missing');
 
     // 值变化超过 1% 或前 3 次才打印日志
     if (lastSentPercent === null || Math.abs(rounded - lastSentPercent) >= 1 || collectCount <= 3) {
@@ -940,169 +986,18 @@ fn do_trigger_fetch_usage(app: &tauri::AppHandle) {
   let emit_result = app.emit("trigger-fetch-usage", {});
   info!("[do_trigger_fetch_usage] 广播事件到主窗口: {:?}", emit_result);
 
-  // 在 MiniMax 窗口中直接执行数据获取逻辑
+  // 获取 MiniMax 窗口
   let window = app.get_webview_window(MINMAX_WINDOW_LABEL);
   if let Some(win) = window {
-    // 直接执行 JavaScript 获取数据并发送事件
-    // 这个脚本会：
-    // 1. 等待页面加载完成
-    // 2. 扫描页面中的使用量数据
-    // 3. 发送事件到主窗口
-    let script = r#"
-      (function() {
-        const TAG = '[MiniMax Trigger]';
-        const MAX_WAIT_MS = 10000;  // 最多等待 10 秒
-        const CHECK_INTERVAL_MS = 500;  // 每 500ms 检查一次
+    info!("[do_trigger_fetch_usage] 找到 MiniMax 窗口，正在刷新页面以获取最新数据...");
 
-        console.log(TAG, '开始获取使用量...');
-
-        // 获取 Tauri 事件发射器
-        function getEventEmitter() {
-          if (window.__TAURI__ && window.__TAURI__.event && window.__TAURI__.event.emit) {
-            return window.__TAURI__.event;
-          }
-          if (window.__TAURI_INTERNALS__ && window.__TAURI_INTERNALS__.emit) {
-            return { emit: window.__TAURI_INTERNALS__.emit };
-          }
-          return null;
-        }
-
-        // 发送事件
-        function sendEvent(percent) {
-          const emitter = getEventEmitter();
-          if (emitter) {
-            emitter.emit('minmax-usage', { percent: percent });
-            console.log(TAG, '发送使用量:', percent + '%');
-          } else {
-            console.warn(TAG, '无法获取事件发射器');
-          }
-        }
-
-        // 从页面提取数据 - 扫描所有可能的格式
-        function extractFromPage() {
-          if (!document.body) return null;
-
-          // 方法 1: 扫描 innerText 中的百分比
-          const text = document.body.innerText || '';
-          const matches = text.matchAll(/(\d+(?:\.\d+)?)\s*%/g);
-          let maxPercent = 0;
-          for (const m of matches) {
-            const p = parseFloat(m[1]);
-            if (p > 0 && p <= 100 && p > maxPercent) {
-              maxPercent = p;
-            }
-          }
-          if (maxPercent > 0) {
-            console.log(TAG, '方法1 (innerText):', maxPercent + '%');
-            return maxPercent;
-          }
-
-          // 方法 2: 扫描包含数字的 span/div 元素
-          const allElements = document.querySelectorAll('span, div, p, td, th');
-          for (const el of allElements) {
-            const content = el.textContent || '';
-            const match = content.match(/^(\d+(?:\.\d+)?)\s*%$/);
-            if (match) {
-              const p = parseFloat(match[1]);
-              if (p > 0 && p <= 100) {
-                console.log(TAG, '方法2 (元素文本):', p + '%');
-                return p;
-              }
-            }
-          }
-
-          // 方法 3: 查找包含"已用"、"使用量"等关键词的元素
-          const usageKeywords = ['已用', '使用量', '已消耗', '额度'];
-          for (const keyword of usageKeywords) {
-            const elements = document.querySelectorAll('*');
-            for (const el of elements) {
-              if (el.textContent && el.textContent.includes(keyword)) {
-                // 查找相邻或附近的百分比
-                const parent = el.parentElement;
-                if (parent) {
-                  const siblingText = parent.textContent || '';
-                  const percentMatch = siblingText.match(/(\d+(?:\.\d+)?)\s*%/);
-                  if (percentMatch) {
-                    const p = parseFloat(percentMatch[1]);
-                    if (p > 0 && p <= 100) {
-                      console.log(TAG, '方法3 (关键词):', p + '%');
-                      return p;
-                    }
-                  }
-                }
-              }
-            }
-          }
-
-          // 方法 4: 查找 data 属性
-          const dataElements = document.querySelectorAll('[data-percent], [data-usage], [data-value]');
-          for (const el of dataElements) {
-            const value = el.getAttribute('data-percent') || el.getAttribute('data-usage') || el.getAttribute('data-value');
-            if (value) {
-              const p = parseFloat(value);
-              if (p > 0 && p <= 100) {
-                console.log(TAG, '方法4 (data属性):', p + '%');
-                return p;
-              }
-            }
-          }
-
-          return null;
-        }
-
-        // 等待并提取数据
-        async function waitAndExtract() {
-          const startTime = Date.now();
-
-          return new Promise((resolve) => {
-            function check() {
-              const percent = extractFromPage();
-              if (percent) {
-                resolve(percent);
-                return;
-              }
-
-              const elapsed = Date.now() - startTime;
-              if (elapsed >= MAX_WAIT_MS) {
-                console.log(TAG, '等待超时，未找到使用量数据');
-                resolve(null);
-                return;
-              }
-
-              // 每 2 秒打印一次进度
-              if (elapsed % 2000 < CHECK_INTERVAL_MS) {
-                console.log(TAG, '等待中...', (elapsed / 1000).toFixed(1) + 's');
-              }
-
-              setTimeout(check, CHECK_INTERVAL_MS);
-            }
-
-            check();
-          });
-        }
-
-        // 主流程
-        waitAndExtract().then(percent => {
-          if (percent) {
-            sendEvent(percent);
-          } else {
-            console.log(TAG, '未能获取到使用量数据');
-            sendEvent(0);
-          }
-        }).catch(e => {
-          console.log(TAG, '获取使用量失败:', e.message);
-          sendEvent(0);
-        });
-
-        return 'fetching...';
-      })();
-    "#;
-
-    match win.eval(script) {
-      Ok(result) => info!("[do_trigger_fetch_usage] 执行结果: {:?}", result),
+    // 刷新页面
+    // 页面刷新后，initialization_script 会自动执行并提取数据
+    match win.eval("window.location.reload()") {
+      Ok(_) => info!("[do_trigger_fetch_usage] 页面刷新命令已发送"),
       Err(e) => {
-        error!("[do_trigger_fetch_usage] 执行失败: {}", e);
-        let _ = app.emit("minmax-usage", serde_json::json!({ "error": "执行失败" }));
+        error!("[do_trigger_fetch_usage] 页面刷新失败: {}", e);
+        let _ = app.emit("minmax-usage", serde_json::json!({ "error": "页面刷新失败" }));
       }
     }
   } else {
@@ -1164,7 +1059,20 @@ pub fn run() {
   let app_state = Arc::new(AppState::new());
 
   tauri::Builder::default()
+    .plugin(tauri_plugin_mcp_bridge::init())
     .plugin(tauri_plugin_log::Builder::default().build())
+    // 拦截窗口关闭事件，改为隐藏
+    .on_window_event(|window, event| {
+      if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+        if window.label() == MINMAX_WINDOW_LABEL {
+          info!("拦截 MiniMax 窗口关闭事件，改为隐藏");
+          api.prevent_close();
+          if let Err(e) = window.hide() {
+             error!("隐藏窗口失败: {}", e);
+          }
+        }
+      }
+    })
     // 注册 Tauri 命令
     .invoke_handler(tauri::generate_handler![
       get_settings,
