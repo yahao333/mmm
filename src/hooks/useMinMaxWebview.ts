@@ -17,6 +17,7 @@ export interface UseMinMaxWebviewReturn {
   isWebviewOpen: boolean;
   webviewHint: string;
   autoUsagePercent: number | null;
+  autoResetTime: string | null;
   executeScriptAndFetch: () => Promise<void>;
   MINMAX_USAGE_URL: string;
 }
@@ -58,6 +59,7 @@ export function useMinMaxWebview(): UseMinMaxWebviewReturn {
   const [isWebviewOpen, setIsWebviewOpen] = useState(false);
   const [webviewHint, setWebviewHint] = useState('');
   const [autoUsagePercent, setAutoUsagePercent] = useState<number | null>(null);
+  const [autoResetTime, setAutoResetTime] = useState<string | null>(null);
 
   // 使用 ref 存储 listener 注册状态
   const hasListener = useRef(false);
@@ -136,6 +138,18 @@ export function useMinMaxWebview(): UseMinMaxWebviewReturn {
       }
     });
 
+    // 监听 minmax-reset-time 事件（剩余重置时间）
+    await listen<{ resetTime?: string }>('minmax-reset-time', (event) => {
+      console.log('[useMinMaxWebview] 收到 minmax-reset-time 事件, payload:', JSON.stringify(event.payload));
+      const resetTime = event.payload?.resetTime;
+      if (typeof resetTime === 'string' && resetTime.length > 0) {
+        console.log('[useMinMaxWebview] 自动获取到剩余时间:', resetTime);
+        setAutoResetTime(resetTime);
+      } else {
+        console.warn('[useMinMaxWebview] 收到无效剩余时间事件 payload:', event.payload);
+      }
+    });
+
     // 监听 trigger-fetch-usage 事件（定时任务触发获取）
     console.log('[useMinMaxWebview] 注册 trigger-fetch-usage 事件监听');
     await listen('trigger-fetch-usage', async () => {
@@ -181,6 +195,7 @@ export function useMinMaxWebview(): UseMinMaxWebviewReturn {
     isWebviewOpen,
     webviewHint,
     autoUsagePercent,
+    autoResetTime,
     executeScriptAndFetch,
     MINMAX_USAGE_URL,
   };

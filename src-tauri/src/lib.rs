@@ -13,10 +13,76 @@ const MINMAX_INIT_SCRIPT: &str = r#"
 (function () {
   const TAG = '[MiniMax Inject]';
   let lastSentPercent = null;
+  let lastSentResetTime = null;
   let collectCount = 0;
 
   function isValidPercent(p) {
     return typeof p === 'number' && Number.isFinite(p) && p >= 0 && p <= 100;
+  }
+
+  /**
+   * 从页面文本中提取剩余重置时间
+   * 匹配格式: "X 小时 Y 分钟后重置", "X 天 Y 小时后重置", "X 分钟后重置" 等
+   * @param text 页面文本
+   * @returns 剩余时间字符串，如果未找到返回 null
+   */
+  function extractResetTimeFromText(text) {
+    if (!text) return null;
+
+    // 匹配 "X 小时 Y 分钟后重置" 或类似格式
+    // 支持中文和数字，支持小数
+    const patterns = [
+      // "1 小时 26 分钟后重置" 或 "1小时26分钟后重置"
+      /(\d+(?:\.\d+)?)\s*(?:小时|钟头|h|hrs?)\s*(\d+(?:\.\d+)?)\s*(?:分钟|mins?|分钟|分)\s*(?:后)?\s*(?:后重置|后.*重置|重置)/i,
+      // "2 天 3 小时后重置"
+      /(\d+(?:\.\d+)?)\s*(?:天|日)\s*(\d+(?:\.\d+)?)\s*(?:小时|钟头|h|hrs?)\s*(?:后)?\s*(?:后重置|后.*重置|重置)/i,
+      // "30 分钟后重置" 或 "30分钟后重置"
+      /(\d+(?:\.\d+)?)\s*(?:分钟|mins?|分钟|分)\s*(?:后)?\s*(?:后重置|后.*重置|重置)/i,
+      // "X 小时后重置"
+      /(\d+(?:\.\d+)?)\s*(?:小时|钟头|h|hrs?)\s*(?:后)?\s*(?:后重置|后.*重置|重置)/i,
+    ];
+
+    for (const pattern of patterns) {
+      const match = text.match(pattern);
+      if (match) {
+        // 构建人类可读的时间字符串
+        let timeStr = '';
+        if (match.length >= 3 && match[2]) {
+          // 格式: "X 小时 Y 分钟"
+          timeStr = match[1] + ' 小时 ' + match[2] + ' 分钟后';
+        } else if (match.length >= 2) {
+          // 格式: "X 分钟" 或 "X 小时"
+          timeStr = match[1];
+          if (pattern.toString().includes('小时')) {
+            timeStr += ' 小时';
+          } else {
+            timeStr += ' 分钟后';
+          }
+        }
+        console.log(TAG, '提取到剩余时间:', timeStr);
+        return timeStr;
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * 发送重置时间事件
+   * @param resetTime 剩余时间字符串
+   */
+  function emitResetTime(resetTime) {
+    const eventEmitter = getTauriEventEmitter();
+    if (!eventEmitter) return false;
+
+    try {
+      eventEmitter.emit('minmax-reset-time', { resetTime: resetTime });
+      console.log(TAG, '上报剩余时间:', resetTime);
+      return true;
+    } catch (e) {
+      console.error(TAG, '上报剩余时间失败:', e);
+      return false;
+    }
   }
 
   function extractUsageFromText(text) {
@@ -148,6 +214,16 @@ const MINMAX_INIT_SCRIPT: &str = r#"
 
     const text = document.body.innerText || '';
     const percent = extractUsageFromText(text);
+
+    // 提取剩余时间
+    const resetTime = extractResetTimeFromText(text);
+    if (resetTime) {
+      // 值变化才发送
+      if (lastSentResetTime !== resetTime) {
+        emitResetTime(resetTime);
+        lastSentResetTime = resetTime;
+      }
+    }
 
     if (!percent) {
       // 调试：打印页面内容片段

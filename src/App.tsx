@@ -59,10 +59,12 @@ function App() {
     loading,
     error,
     usagePercent,
+    resetTime,
     notificationStatus,
     isOverThreshold,
     lastUpdateTime,
     setUsage,
+    setResetTime,
   } = useUsage(settings);
 
   // 使用 hook 管理 webview 获取
@@ -71,6 +73,7 @@ function App() {
     webviewError,
     webviewHint,
     autoUsagePercent,
+    autoResetTime,
     executeScriptAndFetch,
   } = useMinMaxWebview();
 
@@ -86,6 +89,13 @@ function App() {
     console.log('[App] 收到自动使用量，更新到面板:', autoUsagePercent + '%');
     setUsage(autoUsagePercent);
   }, [autoUsagePercent, setUsage]);
+
+  // 监听 autoResetTime 变化并更新剩余时间
+  useEffect(() => {
+    if (autoResetTime === null) return;
+    console.log('[App] 收到自动剩余时间，更新到面板:', autoResetTime);
+    setResetTime(autoResetTime);
+  }, [autoResetTime, setResetTime]);
 
   // 监听定时任务触发信号，确保每次定时检查都执行预警检查
   // 即使 autoUsagePercent 值没变化，也要调用 setUsage 来触发 handleUsageData
@@ -487,6 +497,7 @@ function App() {
         ) : (
           <MonitorPanel
             usagePercent={usagePercent}
+            resetTime={resetTime}
             loading={loading}
             fetching={fetching}
             error={displayError}

@@ -6,6 +6,8 @@ import React from 'react';
 interface MonitorPanelProps {
   // 使用量数据
   usagePercent: number | null;
+  // 剩余重置时间
+  resetTime: string | null;
   // 加载状态
   loading: boolean;
   // 是否正在获取数据（用于 fetch 按钮）
@@ -36,6 +38,7 @@ interface MonitorPanelProps {
  */
 export function MonitorPanel({
   usagePercent,
+  resetTime,
   loading,
   fetching,
   error,
@@ -142,6 +145,14 @@ export function MonitorPanel({
               : t('normalMsg')}
           </span>
         </div>
+
+        {/* 剩余重置时间 */}
+        {resetTime && (
+          <div className="flex items-center gap-1.5 text-xs text-gray-400 px-4 py-2 bg-black/3 rounded-full">
+            <span>⏰</span>
+            {resetTime}重置
+          </div>
+        )}
 
         {/* 更新时间提示 */}
         {lastUpdateTime && (

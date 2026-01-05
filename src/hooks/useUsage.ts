@@ -19,10 +19,12 @@ export interface UseUsageReturn {
   loading: boolean;
   error: string | null;
   usagePercent: number | null;
+  resetTime: string | null;
   notificationStatus: string;
   lastUpdateTime: Date | null;
   isOverThreshold: boolean;
   setUsage: (percent: number) => Promise<void>;
+  setResetTime: (time: string) => void;
   paste: () => Promise<boolean>;
   resetWarningState: () => void;
 }
@@ -132,6 +134,7 @@ export function useUsage(settings: Settings): UseUsageReturn {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [usagePercent, setUsagePercent] = useState<number | null>(null);
+  const [resetTime, setResetTime] = useState<string | null>(null);
   const [notificationStatus, setNotificationStatus] = useState('');
   const [lastUpdateTime, setLastUpdateTime] = useState<Date | null>(null);
 
@@ -228,6 +231,14 @@ export function useUsage(settings: Settings): UseUsageReturn {
   }, [handleUsageData]);
 
   /**
+   * 设置剩余重置时间
+   */
+  const setResetTimeCallback = useCallback((time: string) => {
+    console.log('[useUsage] 设置剩余时间:', time);
+    setResetTime(time);
+  }, []);
+
+  /**
    * 检查使用量是否超过阈值
    */
   const isOverThreshold = usagePercent !== null && usagePercent >= settings.warningThreshold;
@@ -243,10 +254,12 @@ export function useUsage(settings: Settings): UseUsageReturn {
     loading,
     error,
     usagePercent,
+    resetTime,
     notificationStatus,
     lastUpdateTime,
     isOverThreshold,
     setUsage,
+    setResetTime: setResetTimeCallback,
     paste,
     resetWarningState,
   };
