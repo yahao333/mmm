@@ -1,4 +1,4 @@
-import { test, expect } from 'playwright/test';
+import { test, expect } from '@playwright/test';
 
 test('未登录时，点击“获取使用量”会打开 MiniMax 页面', async ({ page }) => {
   await page.addInitScript(() => {
@@ -27,5 +27,5 @@ test('已登录时，点击“获取使用量”会打开 MiniMax 页面并提�
 
   await expect(popup).toHaveURL(/platform\.minimaxi\.com\/user-center\/payment\/coding-plan/);
 
-  await expect(page.getByText(/MiniMax|自动同步使用量|无需复制/i)).toBeVisible();
+  await expect(page.getByText(/已打开 MiniMax 页面：登录后会自动同步使用量/i)).toBeVisible();
 });

@@ -5,7 +5,7 @@
  * 查找使用量百分比
  * @returns 使用量百分比，如果未找到返回 null
  */
-function findUsagePercent(): number | null {
+export function findUsagePercent(): number | null {
   // 获取页面所有文本内容
   const pageText = document.body.innerText;
   console.log('[MiniMax Content] 开始查找使用量数据...');
@@ -17,7 +17,7 @@ function findUsagePercent(): number | null {
   const percentUsedMatch = pageText.match(/(\d+(?:\.\d+)?)\s*%\s*(?:已使用|已消耗|已用)/);
   if (percentUsedMatch) {
     const percent = parseFloat(percentUsedMatch[1]);
-    if (percent > 0 && percent <= 100) {
+    if (Number.isFinite(percent) && percent >= 0 && percent <= 100) {
       console.log('[MiniMax Content] 方法1-百分比已使用格式匹配成功:', percent + '%');
       return percent;
     }
@@ -28,7 +28,7 @@ function findUsagePercent(): number | null {
   if (usageMatch) {
     const used = parseFloat(usageMatch[1]);
     const total = parseFloat(usageMatch[2]);
-    if (total > 0 && used <= total && used > 0) {
+    if (Number.isFinite(used) && Number.isFinite(total) && total > 0 && used >= 0 && used <= total) {
       const percent = (used / total) * 100;
       console.log('[MiniMax Content] 方法2-已使用格式匹配成功:', percent + '%', `(已使用 ${used}/${total})`);
       return percent;
@@ -54,15 +54,33 @@ function main(): void {
     }
 
     if (message.action === 'getUsage') {
-      // 获取当前页面使用量
-      const usage = findUsagePercent();
-      console.log('[MiniMax Content] 返回使用量数据:', usage);
+      // 获取当前页面使用量，带重试机制
+      const startTime = Date.now();
+      const MAX_RETRY_TIME = 3000; // 最多重试3秒
+      const RETRY_INTERVAL = 500;  // 每次间隔500ms
 
-      sendResponse({
-        success: usage !== null,
-        usage: usage,
-      });
-      return false;
+      const tryFindUsage = async () => {
+        let usage = findUsagePercent();
+        
+        // 如果未找到且未超时，则重试
+        if (usage === null && (Date.now() - startTime < MAX_RETRY_TIME)) {
+          console.log('[MiniMax Content] 未找到使用量，等待重试...');
+          return new Promise<void>((resolve) => {
+            setTimeout(async () => {
+              resolve(await tryFindUsage());
+            }, RETRY_INTERVAL);
+          });
+        }
+
+        console.log('[MiniMax Content] 最终返回使用量数据:', usage);
+        sendResponse({
+          success: usage !== null,
+          usage: usage,
+        });
+      };
+
+      tryFindUsage();
+      return true; // 保持消息通道开启
     }
 
     // 返回 true 表示异步响应

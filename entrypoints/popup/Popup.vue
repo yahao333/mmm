@@ -1,7 +1,8 @@
 <template>
   <div class="popup-container">
-    <div class="header">
+  <div class="header">
       <h1>{{ t('title') }}</h1>
+      <span v-if="isDev" class="dev-badge">{{ t('devBadge') }}</span>
       <div class="header-actions">
         <button class="lang-toggle" @click="toggleLanguage" title="Change Language">
           {{ currentLang === 'en' ? '中' : 'EN' }}
@@ -81,6 +82,7 @@ import { ref, onMounted, computed } from 'vue';
 const messages = {
   zh: {
     title: 'MiniMax 使用量监控',
+    devBadge: '开发模式热重载示例',
     settings: '设置',
     warningThreshold: '预警阈值 (%)',
     checkInterval: '后台检查间隔 (分钟)',
@@ -108,6 +110,7 @@ const messages = {
   },
   en: {
     title: 'MiniMax Usage Monitor',
+    devBadge: 'Dev Hot Reload Demo',
     settings: 'Settings',
     warningThreshold: 'Warning Threshold (%)',
     checkInterval: 'Check Interval (min)',
@@ -147,6 +150,7 @@ const checkInterval = ref(30);       // 检查间隔
 const currentLang = ref<Lang>('en'); // 当前语言，默认英文
 const notificationStatus = ref('');  // 通知状态提示
 const wechatWorkWebhookUrl = ref(''); // 企业微信 Webhook URL
+const isDev = import.meta.env.MODE === 'development';
 
 /**
  * 获取翻译文本
@@ -266,53 +270,103 @@ async function getCurrentTab(): Promise<chrome.tabs.Tab> {
 
 /**
  * 从页面获取 MiniMax 使用量数据
- * 通过 content script 注入脚本来获取页面数据
+ * 在获取数据前，先刷新目标页面，并确保 content script 已就绪
  */
 async function fetchUsageData(): Promise<number> {
-  // 获取当前标签页
-  const tab = await getCurrentTab();
+  // 1) 查找或打开目标页面的标签页（确保是目标 URL）
+  const targetUrl = 'https://platform.minimaxi.com/user-center/payment/coding-plan';
+  const tabs = await chrome.tabs.query({ url: '*://platform.minimaxi.com/*' });
+  let tab = tabs.find(t => (t.url || '').includes('/user-center/payment/coding-plan'));
+  if (!tab) {
+    // 如果没打开，先打开目标页面
+    tab = await new Promise<chrome.tabs.Tab>((resolve) => {
+      chrome.tabs.create({ url: targetUrl }, resolve);
+    });
+    // 等待页面初次加载片刻
+    await new Promise(resolve => setTimeout(resolve, 1200));
+  }
 
-  // 检查是否是 MiniMax 页面
-  if (!tab.url?.includes('minimaxi.com')) {
+  // 2) 刷新页面，确保数据是最新的
+  if (tab.id) {
+    try {
+      await chrome.tabs.reload(tab.id);
+      console.log('[MiniMax Popup] 已刷新目标页面，以获取最新数据');
+    } catch (err) {
+      console.warn('[MiniMax Popup] 刷新页面失败，但继续尝试获取数据:', err);
+    }
+  }
+
+  // 3) 等待 content script 就绪（通过 ping 检测）
+  async function waitForContentScript(tabId: number, timeoutMs: number = 10000): Promise<boolean> {
+    const startTime = Date.now();
+    console.log('[MiniMax Popup] 等待 content script 就绪...');
+    return new Promise((resolve) => {
+      const timer = setInterval(async () => {
+        if (Date.now() - startTime > timeoutMs) {
+          clearInterval(timer);
+          console.log('[MiniMax Popup] 等待 content script 超时');
+          resolve(false);
+          return;
+        }
+        try {
+          const response = await chrome.tabs.sendMessage(tabId, { action: 'ping' });
+          if (response && response.pong) {
+            clearInterval(timer);
+            console.log('[MiniMax Popup] content script 已就绪');
+            resolve(true);
+          }
+        } catch {
+          // 未就绪，继续轮询
+        }
+      }, 500);
+    });
+  }
+
+  if (!tab.id) {
     throw new Error('请在 MiniMax 页面打开扩展');
   }
 
-  // 调试日志：记录当前页面 URL
-  console.log('[MiniMax Popup] 当前页面 URL:', tab.url);
+  let ready = await waitForContentScript(tab.id);
+  if (!ready) {
+    // 若未就绪，手动注入内容脚本（WXT 输出路径）
+    console.log('[MiniMax Popup] content script 未就绪，尝试手动注入...');
+    try {
+      await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        files: ['/content-scripts/content.js'],
+      });
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      ready = await waitForContentScript(tab.id, 5000);
+    } catch (err) {
+      console.warn('[MiniMax Popup] 注入 content script 失败:', err);
+    }
+  }
 
-  // 执行脚本获取使用量数据
+  // 4) 通过消息让 content script 解析页面并返回使用量
+  try {
+    const response = await chrome.tabs.sendMessage(tab.id, { action: 'getUsage' }) as { success: boolean; usage: number | null };
+    console.log('[MiniMax Popup] content script 返回使用量:', response);
+    if (response && response.success && response.usage !== null) {
+      return response.usage;
+    }
+  } catch (err) {
+    console.warn('[MiniMax Popup] 通过消息获取使用量失败，回退到直接执行脚本:', err);
+  }
+
+  // 5) 回退方案：直接在页面上下文执行解析脚本
   const results = await chrome.scripting.executeScript({
-    target: { tabId: tab.id! },
+    target: { tabId: tab.id },
     func: () => {
-      // 从页面中查找使用量信息
-      // 页面结构：查找包含 "已使用" 或百分比信息的元素
       const usageText = document.body.innerText;
-
-      // 调试日志：记录页面内容（截取前500字符）
       console.log('[MiniMax Popup] 页面内容预览:', usageText.substring(0, 500));
-
-      // 尝试匹配使用量百分比模式
-      // 匹配格式如: "80%", "85.5%", "90%" 等
       const percentMatch = usageText.match(/(\d+(?:\.\d+)?)%/);
-
-      if (percentMatch) {
-        const percent = parseFloat(percentMatch[1]);
-        console.log('[MiniMax Popup] 匹配到使用量百分比:', percent + '%');
-        return percent;
-      }
-
-      // 尝试查找特定文本模式
-      // 格式如: "已使用 80/100" 或 "80 / 100"
+      if (percentMatch) return parseFloat(percentMatch[1]);
       const usageMatch = usageText.match(/已使用\s*(\d+(?:\.\d+)?)\s*[\/｜|]\s*(\d+(?:\.\d+)?)/);
       if (usageMatch) {
         const used = parseFloat(usageMatch[1]);
         const total = parseFloat(usageMatch[2]);
-        const percent = (used / total) * 100;
-        console.log('[MiniMax Popup] 计算使用量百分比:', percent + '%', `(已使用 ${used}/${total})`);
-        return percent;
+        return (used / total) * 100;
       }
-
-      console.log('[MiniMax Popup] 未找到使用量数据');
       return null;
     },
   });
@@ -633,5 +687,14 @@ h1 {
 
 .refresh-btn:hover {
   background: #1976d2;
+}
+.dev-badge {
+  margin-left: 8px;
+  padding: 2px 6px;
+  font-size: 12px;
+  color: #2e7d32;
+  background: #e8f5e9;
+  border: 1px solid #c8e6c9;
+  border-radius: 10px;
 }
 </style>

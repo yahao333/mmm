@@ -8,6 +8,9 @@ let lastErrorTime = 0;
 let lastEnterpriseErrorTime = 0; // 企业微信错误通知时间
 const ERROR_COOLDOWN = 60 * 60 * 1000; // 1小时冷却时间（系统通知）
 const ENTERPRISE_ERROR_COOLDOWN = 4 * 60 * 60 * 1000; // 4小时冷却时间（企业微信通知）
+const DEBUG_LAST_ALARM_FIRED_AT_KEY = 'debug_lastAlarmFiredAt';
+const DEBUG_LAST_CODING_PLAN_RELOAD_AT_KEY = 'debug_lastCodingPlanReloadAt';
+const DEBUG_LAST_CODING_PLAN_RELOAD_URL_KEY = 'debug_lastCodingPlanReloadUrl';
 
 // 通知队列存储键名
 const NOTIFICATION_QUEUE_KEY = 'notificationQueue';
@@ -19,8 +22,11 @@ function main(): void {
     console.log('[MiniMax Background] 扩展已安装/更新');
 
     // 初始化存储的配置
-    chrome.storage.local.get(['checkInterval', 'warningThreshold', 'wechatWorkWebhookUrl', NOTIFICATION_QUEUE_KEY], (result) => {
-      if (!result.checkInterval) {
+    chrome.storage.local.get(['checkInterval', 'warningThreshold', 'wechatWorkWebhookUrl', NOTIFICATION_QUEUE_KEY], (result: Record<string, unknown>) => {
+      const rawInterval = result.checkInterval;
+      const intervalMinutes = typeof rawInterval === 'number' ? rawInterval : Number(rawInterval);
+
+      if (!intervalMinutes) {
         // 默认检查间隔：30分钟
         chrome.storage.local.set({
           checkInterval: 30,
@@ -31,7 +37,7 @@ function main(): void {
         console.log('[MiniMax Background] 已初始化默认配置');
       }
       // 设置定时任务
-      setupAlarm(result.checkInterval || 30);
+      setupAlarm(Number.isFinite(intervalMinutes) && intervalMinutes > 0 ? intervalMinutes : 30);
     });
   });
 
@@ -44,7 +50,8 @@ function main(): void {
   // 监听配置变更
   chrome.storage.onChanged.addListener((changes, areaName) => {
     if (areaName === 'local' && changes.checkInterval) {
-      const newInterval = changes.checkInterval.newValue;
+      const raw = changes.checkInterval.newValue as unknown;
+      const newInterval = typeof raw === 'number' ? raw : Number(raw);
       console.log('[MiniMax Background] 检查间隔已更新为:', newInterval);
       setupAlarm(newInterval);
     }
@@ -54,6 +61,9 @@ function main(): void {
   chrome.alarms.onAlarm.addListener((alarm) => {
     if (alarm.name === ALARM_NAME) {
       console.log('[MiniMax Background] 定时检查触发');
+      chrome.storage.local.set({
+        [DEBUG_LAST_ALARM_FIRED_AT_KEY]: Date.now(),
+      });
       // 执行定时检查任务
       scheduledCheck();
     }
@@ -87,6 +97,31 @@ function main(): void {
       });
       return true;
     }
+
+    if (message.action === 'debugGetRefreshState') {
+      chrome.storage.local.get(
+        [
+          DEBUG_LAST_ALARM_FIRED_AT_KEY,
+          DEBUG_LAST_CODING_PLAN_RELOAD_AT_KEY,
+          DEBUG_LAST_CODING_PLAN_RELOAD_URL_KEY,
+        ],
+        (result) => {
+          sendResponse({
+            lastAlarmFiredAt: result[DEBUG_LAST_ALARM_FIRED_AT_KEY] ?? null,
+            lastCodingPlanReloadAt: result[DEBUG_LAST_CODING_PLAN_RELOAD_AT_KEY] ?? null,
+            lastCodingPlanReloadUrl: result[DEBUG_LAST_CODING_PLAN_RELOAD_URL_KEY] ?? null,
+          });
+        },
+      );
+      return true;
+    }
+
+    if (message.action === 'debugTriggerAlarm') {
+      console.log('[MiniMax Background] Debug: 手动触发定时检查');
+      scheduledCheck();
+      sendResponse({ success: true });
+      return false;
+    }
   });
 
   // 后台脚本启动时也检查一次，避免 service worker 被唤醒但 alarm 未创建
@@ -117,6 +152,7 @@ interface NotificationItem {
   timestamp: number;    // 创建时间
   sent: boolean;        // 是否已发送
   sentAt?: number;      // 发送时间
+  retryCount?: number;  // 重试次数
 }
 
 /**
@@ -124,10 +160,11 @@ interface NotificationItem {
  */
 async function getNotificationQueue(): Promise<NotificationItem[]> {
   return new Promise((resolve) => {
-    chrome.storage.local.get([NOTIFICATION_QUEUE_KEY], (result) => {
-      const queue = result[NOTIFICATION_QUEUE_KEY] || [];
+    chrome.storage.local.get([NOTIFICATION_QUEUE_KEY], (result: Record<string, unknown>) => {
+      const rawQueue = result[NOTIFICATION_QUEUE_KEY];
+      const queue = Array.isArray(rawQueue) ? (rawQueue as NotificationItem[]) : [];
       console.log('[MiniMax Background] 获取通知队列，当前数量:', queue.length);
-      resolve(queue as NotificationItem[]);
+      resolve(queue);
     });
   });
 }
@@ -162,6 +199,7 @@ async function addToQueue(item: Omit<NotificationItem, 'id' | 'timestamp' | 'sen
     id: `${item.type}-${Date.now()}`,
     timestamp: Date.now(),
     sent: false,
+    retryCount: 0,
   };
 
   queue.push(newItem);
@@ -200,6 +238,7 @@ async function sendQueuedNotifications(): Promise<number> {
           type: 'basic',
           title: item.title,
           message: item.content,
+          iconUrl: chrome.runtime.getURL('app-icon.png'),
           priority: 2,
           requireInteraction: true,
         });
@@ -213,6 +252,7 @@ async function sendQueuedNotifications(): Promise<number> {
           type: 'basic',
           title: item.title,
           message: item.content,
+          iconUrl: chrome.runtime.getURL('app-icon.png'),
           priority: 2,
         });
         console.log('[MiniMax Background] 系统错误通知已发送');
@@ -224,10 +264,25 @@ async function sendQueuedNotifications(): Promise<number> {
     // 发送企业微信通知
     const wechatSuccess = await sendWeChatWorkNotification(item.title, item.content);
 
-    // 标记为已发送
-    item.sent = true;
-    item.sentAt = Date.now();
-    sentCount++;
+    if (wechatSuccess) {
+      // 发送成功
+      item.sent = true;
+      item.sentAt = Date.now();
+      sentCount++;
+      console.log('[MiniMax Background] 通知发送成功，标记为已发送');
+    } else {
+      // 发送失败，增加重试计数
+      item.retryCount = (item.retryCount || 0) + 1;
+      const MAX_RETRIES = 3;
+
+      if (item.retryCount >= MAX_RETRIES) {
+        console.warn(`[MiniMax Background] 通知发送失败超过 ${MAX_RETRIES} 次，放弃重试`, item.id);
+        item.sent = true; // 标记为已发送（实际上是放弃），避免阻塞
+        item.sentAt = Date.now();
+      } else {
+        console.log(`[MiniMax Background] 通知发送失败，将在下次检查时重试 (当前重试: ${item.retryCount})`, item.id);
+      }
+    }
 
     // 保存更新后的队列
     await saveNotificationQueue(queue);
@@ -328,6 +383,10 @@ async function scheduledCheck(): Promise<void> {
   console.log('[MiniMax Background] ========== 定时检查完成 ==========');
 }
 
+// 暴露给测试使用
+// @ts-ignore
+self.scheduledCheck = scheduledCheck;
+
 // ==================== 使用量检查 ====================
 
 /**
@@ -392,34 +451,27 @@ async function checkMinMaxUsage(shouldRefreshPage: boolean = false): Promise<{ s
     if (shouldRefreshPage && tab.id) {
       console.log('[MiniMax Background] 刷新页面以获取最新数据');
 
+      // 记录刷新调试信息
+      chrome.storage.local.set({
+        [DEBUG_LAST_CODING_PLAN_RELOAD_AT_KEY]: Date.now(),
+        [DEBUG_LAST_CODING_PLAN_RELOAD_URL_KEY]: tab.url,
+      });
+
       // 刷新页面
       await chrome.tabs.reload(tab.id);
+      chrome.storage.local.set({
+        [DEBUG_LAST_CODING_PLAN_RELOAD_AT_KEY]: Date.now(),
+        [DEBUG_LAST_CODING_PLAN_RELOAD_URL_KEY]: tab.url ?? null,
+      });
 
       // 等待页面加载完成并检查 content script 是否就绪
       console.log('[MiniMax Background] 等待页面加载和 content script 注入...');
-      let isReady = await waitForContentScript(tab.id);
+      // 增加等待时间到 10s，确保在慢网或动态渲染下有足够时间
+      const isReady = await waitForContentScript(tab.id, 10000);
 
       if (!isReady) {
-        console.log('[MiniMax Background] content script 未就绪，尝试手动注入...');
-        // 手动注入 content script（路径必须以 / 开头，相对于扩展根目录）
-        await chrome.scripting.executeScript({
-          target: { tabId: tab.id },
-          files: ['/content-scripts/content.js'],
-        });
-        console.log('[MiniMax Background] 已注入 content script，等待初始化...');
-
-        // 等待注入后的 content script 初始化
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        isReady = await waitForContentScript(tab.id, 5000);
-
-        if (!isReady) {
-          console.log('[MiniMax Background] 手动注入后仍未就绪，尝试再次注入...');
-          await chrome.scripting.executeScript({
-            target: { tabId: tab.id },
-            files: ['/content-scripts/content.js'],
-          });
-          await new Promise(resolve => setTimeout(resolve, 1500));
-        }
+        console.warn('[MiniMax Background] content script 未就绪，本次检查跳过');
+        return { success: false, usage: null, warning: false };
       }
     }
 
@@ -449,8 +501,10 @@ async function checkMinMaxUsage(shouldRefreshPage: boolean = false): Promise<{ s
 
     // 获取预警阈值
     const threshold = await new Promise<number>((resolve) => {
-      chrome.storage.local.get(['warningThreshold'], (result) => {
-        resolve(result.warningThreshold || 90);
+      chrome.storage.local.get(['warningThreshold'], (result: Record<string, unknown>) => {
+        const raw = result.warningThreshold;
+        const value = typeof raw === 'number' ? raw : Number(raw);
+        resolve(Number.isFinite(value) ? value : 90);
       });
     });
 
@@ -577,8 +631,8 @@ async function sendWarningNotification(usage: number): Promise<void> {
 async function sendWeChatWorkNotification(title: string, content: string): Promise<boolean> {
   try {
     // 获取企业微信 Webhook URL
-    const result = await chrome.storage.local.get(['wechatWorkWebhookUrl']);
-    const webhookUrl = result.wechatWorkWebhookUrl;
+    const result = await chrome.storage.local.get(['wechatWorkWebhookUrl']) as Record<string, unknown>;
+    const webhookUrl = String(result.wechatWorkWebhookUrl ?? '');
 
     // 如果没有配置 Webhook URL，跳过发送
     if (!webhookUrl || webhookUrl.trim() === '') {

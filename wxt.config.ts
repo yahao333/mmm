@@ -12,7 +12,9 @@ export default defineConfig({
     name: 'MiniMax Monitor',
     description: 'MiniMax 账号使用量监控工具',
     version: '1.0.0',
-    author: 'minmax-helper',
+    author: {
+      email: 'support@minmax-helper.com',
+    },
     homepage_url: 'https://github.com/minmax-helper/minmax-helper',
     permissions: [
       'activeTab',
@@ -21,9 +23,10 @@ export default defineConfig({
       'scripting',
       'alarms',
     ],
-    // 允许访问企业微信 API 域名
+    // 允许访问企业微信 API 域名和 MiniMax 平台
     host_permissions: [
       'https://qyapi.weixin.qq.com/*',
+      '*://platform.minimaxi.com/*',
     ],
   },
 });
