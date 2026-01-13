@@ -8,21 +8,74 @@ ifneq (,$(wildcard .env))
 endif
 
 # Clean up APPLE_SIGNING_IDENTITY (remove double quotes if they were included from .env)
-# This prevents double-quoting issues in zsh (e.g. ""(foo)"" causing "unknown file attribute")
 APPLE_SIGNING_IDENTITY := $(subst ",,$(APPLE_SIGNING_IDENTITY))
 
-.PHONY: build-web build-tauri release release-silicon release-intel clean
+.PHONY: help dev dev-extension dev-tauri build build-extension build-tauri test clean release release-silicon release-intel
 
 PNPM := pnpm -s
+WXT := npx wxt
+PLAYWRIGHT := npx playwright
 
 # Get version from tauri.conf.json
 VERSION := $(shell grep '"version":' src-tauri/tauri.conf.json | head -n 1 | awk -F: '{ print $$2 }' | sed 's/[ ",]//g')
 
+# 默认目标：显示帮助信息
+help:
+	@echo "Usage: make [target]"
+	@echo ""
+	@echo "Development Targets:"
+	@echo "  dev             - Start development server for Chrome Extension (Hot Reload)"
+	@echo "  dev-tauri       - Start development server for Tauri App"
+	@echo "  test            - Run E2E tests with Playwright"
+	@echo ""
+	@echo "Build Targets:"
+	@echo "  build           - Build both Chrome Extension and Tauri App"
+	@echo "  build-extension - Build Chrome Extension only (output: .output/chrome-mv3)"
+	@echo "  build-tauri     - Build Tauri App only"
+	@echo "  release         - Build Tauri App (unsigned) for current arch"
+	@echo "  release-silicon - Build & Sign Tauri App for Apple Silicon (M1/M2/M3)"
+	@echo "  release-intel   - Build & Sign Tauri App for Intel Mac"
+	@echo ""
+	@echo "Maintenance Targets:"
+	@echo "  clean           - Clean build artifacts"
+
+# --- Development ---
+
+# 启动 Chrome 插件开发模式 (Hot Reload)
+dev:
+	@echo "🚀 Starting Chrome Extension development server..."
+	$(WXT)
+
+# 启动 Tauri 开发模式
+dev-tauri:
+	@echo "🚀 Starting Tauri development server..."
+	$(PNPM) dev:tauri
+
+# 运行自动化测试
+test:
+	@echo "🧪 Running E2E tests..."
+	$(PLAYWRIGHT) test
+
+# --- Build ---
+
+# 构建所有
+build: build-extension build-tauri
+
+# 仅构建 Chrome 插件
+build-extension:
+	@echo "📦 Building Chrome Extension..."
+	$(WXT) build
+	@echo "✅ Chrome Extension built at .output/chrome-mv3"
+
+# 仅构建 Tauri 应用 (Web资源)
 build-web:
 	$(PNPM) build
 
+# 仅构建 Tauri 应用 (Native)
 build-tauri:
 	$(PNPM) build:tauri
+
+# --- Release (Tauri Specific) ---
 
 # 默认构建 - 不签名，用户需自行承担安全风险
 release:
@@ -97,5 +150,8 @@ release-intel: build-web
 		exit 1; \
 	fi
 
+# --- Clean ---
+
 clean:
-	rm -rf src-tauri/target
+	@echo "🧹 Cleaning build artifacts..."
+	rm -rf .output dist src-tauri/target
