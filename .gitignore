@@ -31,3 +31,6 @@ pnpm-debug.log*
 todo.md
 CLAUDE.md
 .claude
+
+test-results/*
+tests/*
